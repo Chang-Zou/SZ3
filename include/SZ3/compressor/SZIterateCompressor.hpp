@@ -71,7 +71,7 @@ class SZIterateCompressor : public concepts::CompressorInterface<T> {
                 predictor_withfallback = &fallback_predictor;
             }
             predictor_withfallback->precompress_block_commit();
-
+            // 75 into 2 forloop one will predict and one will quantize
             for (auto element = element_range->begin(); element != element_range->end(); ++element) {
                 quant_inds[quant_count++] =
                     quantizer.quantize_and_overwrite(*element, predictor_withfallback->predict(element));

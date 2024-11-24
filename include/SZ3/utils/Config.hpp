@@ -33,6 +33,7 @@ enum EB { EB_ABS, EB_REL, EB_PSNR, EB_L2NORM, EB_ABS_AND_REL, EB_ABS_OR_REL };
 constexpr const char *EB_STR[] = {"ABS", "REL", "PSNR", "NORM", "ABS_AND_REL", "ABS_OR_REL"};
 constexpr EB EB_OPTIONS[] = {EB_ABS, EB_REL, EB_PSNR, EB_L2NORM, EB_ABS_AND_REL, EB_ABS_OR_REL};
 
+// When dualQuant is done then it will be a new algo?
 enum ALGO { ALGO_LORENZO_REG, ALGO_INTERP_LORENZO, ALGO_INTERP, ALGO_NOPRED, ALGO_LOSSLESS };
 constexpr const char *ALGO_STR[] = {"ALGO_LORENZO_REG", "ALGO_INTERP_LORENZO", "ALGO_INTERP",
                                     "ALGO_NOPRED",      "ALGO_LOSSLESS"       };
@@ -130,6 +131,8 @@ class Config {
         lorenzo2 = cfg.GetBoolean("AlgoSettings", "Lorenzo2ndOrder", lorenzo2);
         regression = cfg.GetBoolean("AlgoSettings", "Regression", regression);
         regression2 = cfg.GetBoolean("AlgoSettings", "Regression2ndOrder", regression2);
+        // dualquant grab from user inputs
+        dualquant = cfg.GetBoolean("AlgoSettings", "dualquant", dualquant);
 
         auto interpAlgoStr = cfg.Get("AlgoSettings", "InterpolationAlgo", "");
         if (interpAlgoStr == INTERP_ALGO_STR[INTERP_ALGO_LINEAR]) {
@@ -314,6 +317,8 @@ class Config {
     bool lorenzo2 = false;
     bool regression = true;
     bool regression2 = false;
+    //Define dualquant
+    bool dualquant = false;
     bool openmp = false;
     uint8_t dataType = SZ_FLOAT;  // dataType is only used in HDF5 filter
     uint8_t lossless = 1;         // 0-> skip lossless(use lossless_bypass); 1-> zstd
