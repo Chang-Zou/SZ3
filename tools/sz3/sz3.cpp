@@ -1,9 +1,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <experimental/simd>
 
 #include "SZ3/api/sz.hpp"
-
 #define SZ_FLOAT 0
 #define SZ_DOUBLE 1
 #define SZ_UINT8 2
@@ -128,7 +128,14 @@ inline void usage_sz2() {
 
 template <class T>
 void compress(char *inPath, char *cmpPath, SZ3::Config conf) {
-    T *data = new T[conf.num];
+    // Dynamically allocate aligned memory
+    const int alignment_byte = stdx::memory_alignment_v<stdx::native_simd<float>>;
+    constexpr size_t alignment = alignment_byte;
+
+    size_t dataSize = sizeof(T) * conf.num;
+
+    T *data = static_cast<T *>(std::aligned_alloc(alignment, dataSize));
+    // T *data = new T[conf.num];
     SZ3::readfile<T>(inPath, conf.num, data);
     size_t bytesCap = 2 * conf.num * sizeof(T);
     auto bytes = new char[bytesCap];

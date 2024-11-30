@@ -5,6 +5,7 @@
 #include <array>
 #include <cassert>
 #include <cstddef>
+#include <experimental/simd>
 #include <iostream>
 #include <iterator>
 #include <memory>
@@ -13,7 +14,6 @@
 #include <type_traits>
 #include <typeinfo>
 #include <vector>
-
 namespace SZ3 {
 // N-dimensional multi_dimensional_range
 template <class T, uint N>
@@ -78,6 +78,15 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
             return *this;
         }
 
+        inline multi_dimensional_iterator &operator+=(size_t batch_size) {
+            // Advance the iterator by batch_size steps
+            for (size_t i = 0; i < batch_size; ++i) {
+                // Call operator++ to move the iterator one step forward
+                ++(*this);
+            }
+            return *this;
+        }
+
         multi_dimensional_iterator operator++(int) {
             auto cpy = *this;
             ++(*this);
@@ -125,11 +134,23 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
             // TODO: change to offset map for efficiency
             static_assert(sizeof...(Args) == N, "Must have the same number of arguments");
             auto offset = global_offset;
+
+            //
+
             std::array<int, N> args{std::forward<Args>(pos)...};
+            // printf("args i is:", args[i]);
+            // printf("global dimensions i is:", global_dim_strides[i]);
+            printf("global offset  is %d:", offset);
+
             for (int i = 0; i < N; i++) {
+                printf("args i is %d:", args[i]);
+                printf("global dimensions i is %d:", range->global_dim_strides[i]);
+
                 if (local_index[i] < args[i] && range->is_left_boundary(i)) return 0;
                 offset -= args[i] ? args[i] * range->global_dim_strides[i] : 0;
             }
+            printf("final offset  is %d:", offset);
+
             return range->data[offset];
         }
 

@@ -89,7 +89,10 @@ class LorenzoPredictor : public concepts::PredictorInterface<T, N> {
         return fabs(*iter - predict(iter)) + this->noise;
     }
 
-    inline T predict(const iterator &iter) const noexcept override { return do_predict(iter); }
+    inline T predict(const iterator &iter) const noexcept override {
+        // printf("iterator in lorezon: %f\n", iter);
+        return do_predict(iter);
+    }
 
     //        void clear() {}
 

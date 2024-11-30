@@ -69,6 +69,11 @@ class PredictorInterface {
      */
     virtual T predict(const iterator &iter) const noexcept = 0;
 
+    virtual T simd_prequant(iterator &iter) noexcept {
+        // Provide a default implementation if not overridden
+        throw std::runtime_error("simdpredict is not implemented for this predictor.");
+    }
+
     /**
      * estimate the prediction error ( |prediction value - read value|)  for a single data point
      * @param iter the iterator of the single data point
