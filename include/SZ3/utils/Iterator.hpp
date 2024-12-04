@@ -140,16 +140,11 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
             std::array<int, N> args{std::forward<Args>(pos)...};
             // printf("args i is:", args[i]);
             // printf("global dimensions i is:", global_dim_strides[i]);
-            printf("global offset  is %d:", offset);
 
             for (int i = 0; i < N; i++) {
-                printf("args i is %d:", args[i]);
-                printf("global dimensions i is %d:", range->global_dim_strides[i]);
-
                 if (local_index[i] < args[i] && range->is_left_boundary(i)) return 0;
                 offset -= args[i] ? args[i] * range->global_dim_strides[i] : 0;
             }
-            printf("final offset  is %d:", offset);
 
             return range->data[offset];
         }

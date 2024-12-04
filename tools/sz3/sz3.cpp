@@ -129,7 +129,7 @@ inline void usage_sz2() {
 template <class T>
 void compress(char *inPath, char *cmpPath, SZ3::Config conf) {
     // Dynamically allocate aligned memory
-    const int alignment_byte = stdx::memory_alignment_v<stdx::native_simd<float>>;
+    const int alignment_byte = stdx::memory_alignment_v<stdx::native_simd<T>>;
     constexpr size_t alignment = alignment_byte;
 
     size_t dataSize = sizeof(T) * conf.num;

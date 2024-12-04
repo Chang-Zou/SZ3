@@ -31,7 +31,39 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
 
     // quantize the data with a prediction value, and returns the quantization index and the decompressed data
     // int quantize(T data, T pred, T& dec_data);
+
     int quantize_and_overwrite(T &data, T pred) override {
+        // int quantize_and_overwrite(T &data, const stdx::native_simd<float> &simd_vector) override {
+        T diff = data - pred;
+        auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
+        if (quant_index < this->radius * 2) {
+            quant_index >>= 1;
+            int half_index = quant_index;
+            quant_index <<= 1;
+            int quant_index_shifted;
+            if (diff < 0) {
+                quant_index = -quant_index;
+                quant_index_shifted = this->radius - half_index;
+            } else {
+                quant_index_shifted = this->radius + half_index;
+            }
+            T decompressed_data = pred + quant_index * this->error_bound;
+            if (fabs(decompressed_data - data) > this->error_bound) {
+                unpred.push_back(data);
+                return 0;
+            } else {
+                data = decompressed_data;
+                return quant_index_shifted;
+            }
+        } else {
+            unpred.push_back(data);
+            return 0;
+        }
+    }
+
+    int quantize_and_overwrite2(T &data, T *pred) {
+        // int quantize_and_overwrite(T &data, const stdx::native_simd<float> &simd_vector) override {
+        printf("from quantizer is: %d", pred[1]);
         T diff = data - pred;
         auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
         if (quant_index < this->radius * 2) {
@@ -143,7 +175,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
         index = 0;
     }
 
-    void print() override{
+    void print() override {
         printf("[LinearQuantizer] error_bound = %.8G, radius = %d, unpred = %lu\n", error_bound, radius, unpred.size());
     }
 
@@ -151,7 +183,6 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     //            unpred.clear();
     //            index = 0;
     //        }
-
 
    private:
     std::vector<T> unpred;

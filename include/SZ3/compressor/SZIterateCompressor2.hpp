@@ -114,29 +114,32 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
                 //  // print(simd_vector);
 
                 // Use predictor with fallback
-                predictor_withfallback->simd_prequant(element);
-                //  printf("the predict is %f", predictor_withfallback->predict(element));
+                // predictor_withfallback->simd_prequant(element);
                 // quant_inds[quant_count++] =
-                //     quantizer.quantize_and_overwrite(*element, predictor_withfallback->predict(element));
+                //     quantizer.quantize_and_overwrite2(*element, predictor_withfallback->simd_predict(element));
             }
+            // quant_inds[quant_count++] =
+            //     quantizer.quantize_and_overwrite(*element, predictor_withfallback->predict(element));
         }
 
         // Post quantization
-        for (auto block = block_range->begin(); block != block_range->end(); ++block) {
-            element_range->update_block_range(block, block_size);
-            printf("block size is: %d\n", block_size);
-            concepts::PredictorInterface<T, N> *predictor_withfallback = &predictor;
-            if (!predictor.precompress_block(element_range)) {
-                predictor_withfallback = &fallback_predictor;
-            }
-            predictor_withfallback->precompress_block_commit();
-            for (auto element = element_range->begin(); element != element_range->end(); element += batch_size) {
-                // Use predictor with fallback
-                // printf("in element address after iteration %f \n", *element);
-                predictor_withfallback->predict(element);
-                printf("finihsed one SIMD \n");
-            }
-        }
+        // for (auto block = block_range->begin(); block != block_range->end(); ++block) {
+        //     element_range->update_block_range(block, block_size);
+        //     printf("block size is: %d\n", block_size);
+        //     concepts::PredictorInterface<T, N> *predictor_withfallback = &predictor;
+        //     if (!predictor.precompress_block(element_range)) {
+        //         predictor_withfallback = &fallback_predictor;
+        //     }
+        //     predictor_withfallback->precompress_block_commit();
+        //     for (auto element = element_range->begin(); element != element_range->end(); ++element) {
+        //         // Use predictor with fallback
+        //         // printf("in element address after iteration %f \n", *element);
+        //         // predictor_withfallback->predict(element);
+        //         quant_inds[quant_count++] =
+        //             quantizer.quantize_and_overwrite(*element, predictor_withfallback->predict(element));
+        //         // printf("finihsed one SIMD \n");
+        //     }
+        // }
 
         predictor.postcompress_data(block_range->begin());
         quantizer.postcompress_data();

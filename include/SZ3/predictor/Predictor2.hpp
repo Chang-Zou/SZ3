@@ -1,5 +1,5 @@
-#ifndef _SZ_PREDICTOR_HPP
-#define _SZ_PREDICTOR_HPP
+#ifndef _SZ_PREDICTOR_HPP2
+#define _SZ_PREDICTOR_HPP2
 
 #include "SZ3/def.hpp"
 #include "SZ3/utils/Iterator.hpp"
@@ -16,12 +16,12 @@ namespace SZ3::concepts {
  *
  */
 template <class T, uint N>
-class PredictorInterface {
+class PredictorInterface2 {
    public:
     using Range = multi_dimensional_range<T, N>;
     using iterator = typename multi_dimensional_range<T, N>::iterator;
 
-    virtual ~PredictorInterface() = default;
+    virtual ~PredictorInterface2() = default;
 
     virtual void precompress_data(const iterator &) const = 0;
 
@@ -70,11 +70,6 @@ class PredictorInterface {
     virtual T predict(const iterator &iter) const noexcept = 0;
 
     virtual T simd_prequant(iterator &iter) noexcept {
-        // Provide a default implementation if not overridden
-        throw std::runtime_error("simdpredict is not implemented for this predictor.");
-    }
-
-    virtual T simd_predict(iterator &iter) noexcept {
         // Provide a default implementation if not overridden
         throw std::runtime_error("simdpredict is not implemented for this predictor.");
     }
