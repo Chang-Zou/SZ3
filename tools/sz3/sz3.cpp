@@ -1,7 +1,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <experimental/simd>
 
 #include "SZ3/api/sz.hpp"
 #define SZ_FLOAT 0

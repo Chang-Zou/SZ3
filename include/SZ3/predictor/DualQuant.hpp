@@ -9,7 +9,7 @@
 #include "SZ3/utils/Iterator.hpp"
 
 // get sqyuentail working
-
+namespace stdx = std::experimental;
 // radius of vecsz is always 2048
 namespace SZ3 {
 
@@ -60,6 +60,7 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     bool precompress_block(const std::shared_ptr<Range> &element_range) override {
         size_t batch_size = 4;
         for (auto element = element_range->begin(); element != element_range->end(); element += batch_size) {
+            // printf("in element prequant value %f \n", *element);
             simd_prequant(element);
         }
         return true;
@@ -99,12 +100,12 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     }
 
     inline T estimate_error(const iterator &iter) const noexcept override {
-        return fabs(*iter - predict(iter)) + this->noise;
+        // return fabs(*iter - predict(iter)) + this->noise;
+        return 0;
     }
 
     T simd_prequant(iterator &iter) noexcept override {
         //   printf("the iterator is %f\n", iter);
-        // printsimd(simd_vector);
         prequant(iter);
         // printf("the iterator after is %f\n", iter);
         // return do_predict(iter);
@@ -118,23 +119,15 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     // }
 
     T predict(const iterator &iter) const noexcept override {
-        // printf("the iterator is %f\n", iter);
-        // stdx::native_simd<float> simd_vector;
-        // simd_vector.copy_from(&(*iter), stdx::element_aligned);
-        // // printsimd(simd_vector);
-        // prequant(simd_vector, iter);
-        // printf("the iterator after is %f\n", iter);
-        // return simd_predict(iter);
+        // iterator non_const_iter = iter;
+        // // printf("in predict\n");
+        // return simd_predict(non_const_iter);
         return 0;
     }
 
-    T simd_predict(iterator &iter) noexcept override {
-        // printf("the iterator is %f\n", iter);
-        // stdx::native_simd<float> simd_vector;
-        // simd_vector.copy_from(&(*iter), stdx::element_aligned);
-        // // printsimd(simd_vector);
-        // prequant(simd_vector, iter);
-        // printf("the iterator after is %f\n", iter);
+    stdx::native_simd<T> simd_predict(iterator &iter) noexcept override {
+        // printf("prediction \n");
+        // printsimd(do_predict(iter));
         return do_predict(iter);
     }
     //        void clear() {}
@@ -150,81 +143,35 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         for (std::size_t i{}; i != std::size(a); ++i) std::cout << a[i] << ' ';
         std::cout << '\n';
     }
-    // void prequant(const stdx::native_simd<float> &simd_vector, const iterator &iter) {
+    // void prequant(const stdx::native_simd<T> &simd_vector, const iterator &iter) {
 
     void prequant(iterator &iter) {
         // printf("the error is %f", eb);  // Perform operations using simd_vector
-        stdx::native_simd<float> simd_vector;
+        stdx::native_simd<T> simd_vector;
         simd_vector.copy_from(&(*iter), stdx::element_aligned);
-        float divisor = static_cast<float>(2 * eb);
+        T divisor = (2 * eb);
         // Perform element-wise division
-        stdx::native_simd<float> temp_vector = simd_vector / divisor;
+        stdx::native_simd<T> temp_vector = simd_vector / divisor;
         // float dataw[4];
         temp_vector.copy_to(&(*iter), stdx::element_aligned);
-        printf("prequantizing\n");
-        printsimd(temp_vector);
+        // printf("prequantizing\n");
+        // printsimd(temp_vector);
     }
-    // void prequant2(const stdx::native_simd<float> &simd_vector, &element) {
+    // void prequant2(const stdx::native_simd<T> &simd_vector, &element) {
     //     printf("the error is %f", eb);  // Perform operations using simd_vector
     //     float divisor = static_cast<float>(2 * eb);
     //     // Perform element-wise division
-    //     stdx::native_simd<float> temp_vector = simd_vector / divisor;
+    //     stdx::native_simd<T> temp_vector = simd_vector / divisor;
     //     //  printf("the copy index is %d:\n", copy_index);
     //     temp_vector.copy_to(&element, stdx::vector_aligned);
-    //     printsimd(temp_vector);
     // }
     template <uint NN = N, uint LL = L>
     // Added functions
 
-    inline typename std::enable_if<NN == 1 && LL == 1, T>::type do_predict(iterator &iter) const noexcept {
-        // printf("here 1\n");
-        // using simd_t = stdx::native_simd<float>;
-        // stdx::native_simd<float> simd_vector;
-        // simd_vector.copy_from(&(*iter), stdx::element_aligned);
-        // iter.prev(1);
-        // printf("the iter prev value is %f: \n", iter.prev(1));
-        // for (auto i = 0; i < 4; ++i) {
-        //     iter.prev(1)
-        // const float *ptr_prev01 = &iter.prev(1);
-        // simd_t prev01 = simd_t::copy_from(ptr_prev01, stdx::element_aligned);
-        // printf("in 1 here %f\n", ptr_prev01);
-        // printsimd(prev01);
-        //  }
-        // std::cout << "Iter is" << iter << std::endl;
-        // ++iter;
-        // constexpr int simd_size = 4;
-        // alignas(64) float temp_prev01[simd_size];
-        // for (int i = 0; i < simd_size; ++i) {
-        //     temp_prev01[i] = ().prev(1);
-        //     // temp_prev10[i] = (iter + i).prev(1, 0);
-        //     // temp_prev11[i] = (iter + i).prev(1, 1);
-        // }
-        // stdx::native_simd<float> prev01 = stdx::native_simd<float>::copy_from(temp_prev01, stdx::element_aligned);
-        // printsimd(prev01);
-
-        // Bad idea: doing this because const and have to modify a lot of places but this incurs copy cost(or not?)
-        // iterator temp_iter = iter;
-        // //++temp_iter;
-        // constexpr int simd_size = 4;
-        // alignas(64) float temp_prev01[simd_size];
-        // using simd_t = stdx::native_simd<float>;
-        // for (int i = 0; i < simd_size; ++i) {
-        //     temp_prev01[i] = (++temp_iter).prev(1);
-        //     // temp_prev10[i] = (iter + i).prev(1, 0);
-        //     // temp_prev11[i] = (iter + i).prev(1, 1);
-        // }
-        // stdx::native_simd<float> prev01;
-        // prev01.copy_from(&(*temp_prev01), stdx::element_aligned);
-        // // stdx::native_simd<float> result = prev01;
-        // printsimd(prev01);
-        // return prev01;
-        // const double *current_address = &(*iter);
-
-        // stdx::native_simd<float> simd_vector;
-        auto *simd_vector = new stdx::native_simd<float>;
-
-        simd_vector->copy_from(&(*(--iter)), stdx::element_aligned);
-        // printsimd(simd_vector);
+    stdx::native_simd<T> do_predict(iterator &iter) const noexcept {
+        // printf("iter in here is:%f\n", *iter);
+        stdx::native_simd<T> simd_vector;
+        simd_vector.copy_from(&(*(--iter)), stdx::element_aligned);
         return simd_vector;
     }
 
@@ -234,7 +181,7 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         // Same operations on all 4 data
         // printf("here 2\n");
 
-        // using simd_t = stdx::native_simd<float>;      // or use `stdx::fixed_size_simd<float, 16>` for a fixed size
+        // using simd_t = stdx::native_simd<T>;      // or use `stdx::fixed_size_simd<float, 16>` for a fixed size
         // constexpr size_t simd_size = simd_t::size();  // Number of elements processed in parallel
 
         // // Prepare data
@@ -251,7 +198,6 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         // simd_t result = prev01 + prev10 - prev11;
 
         // // Debug print (optional)
-        // printsimd(result);
 
         return iter.prev(0, 1) + iter.prev(1, 0) - iter.prev(1, 1);
     }

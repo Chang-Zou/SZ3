@@ -60,35 +60,73 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
             return 0;
         }
     }
+    void printsimd(auto const &a) {
+        for (std::size_t i{}; i != std::size(a); ++i) std::cout << a[i] << ' ';
+        std::cout << '\n';
+    }
 
-    int quantize_and_overwrite2(T &data, T *pred) {
-        // int quantize_and_overwrite(T &data, const stdx::native_simd<float> &simd_vector) override {
-        printf("from quantizer is: %d", pred[1]);
-        T diff = data - pred;
-        auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
-        if (quant_index < this->radius * 2) {
-            quant_index >>= 1;
-            int half_index = quant_index;
-            quant_index <<= 1;
-            int quant_index_shifted;
-            if (diff < 0) {
-                quant_index = -quant_index;
-                quant_index_shifted = this->radius - half_index;
+    std::vector<T> quantize_and_overwrite2(T *data, const stdx::native_simd<T> &pred_vector) {
+        std::vector<T> result(4, 0);  // Vector to store results for 4 lanes
+
+        stdx::native_simd<T> data_vector;
+        data_vector.copy_from(data, stdx::element_aligned);
+        stdx::native_simd<T> diff_vector = data_vector - pred_vector;
+
+        for (size_t i = 0; i < diff_vector.size(); ++i) {  // Iterate over the SIMD lanes
+            T diff = diff_vector[i];
+            auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
+            if (quant_index < this->radius * 2) {
+                quant_index >>= 1;
+                int half_index = quant_index;
+                quant_index <<= 1;
+                int quant_index_shifted;
+                if (diff < 0) {
+                    quant_index = -quant_index;
+                    quant_index_shifted = this->radius - half_index;
+                } else {
+                    quant_index_shifted = this->radius + half_index;
+                }
+                T decompressed_data = pred_vector[0] + quant_index * this->error_bound;
+                if (fabs(decompressed_data - data[i]) > this->error_bound) {
+                    unpred.push_back(data[i]);
+                    result[i] = 0;
+                } else {
+                    data[i] = decompressed_data;
+                    result[i] = quant_index_shifted;
+                }
             } else {
-                quant_index_shifted = this->radius + half_index;
+                unpred.push_back(data[i]);
+                result[i] = 0;
             }
-            T decompressed_data = pred + quant_index * this->error_bound;
-            if (fabs(decompressed_data - data) > this->error_bound) {
-                unpred.push_back(data);
-                return 0;
-            } else {
-                data = decompressed_data;
-                return quant_index_shifted;
-            }
-        } else {
-            unpred.push_back(data);
-            return 0;
         }
+        return result;  // Return vector of size 4
+                        // T diff = data - pred;
+
+        // auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
+        // if (quant_index < this->radius * 2) {
+        //     quant_index >>= 1;
+        //     int half_index = quant_index;
+        //     quant_index <<= 1;
+        //     int quant_index_shifted;
+        //     if (diff < 0) {
+        //         quant_index = -quant_index;
+        //         quant_index_shifted = this->radius - half_index;
+        //     } else {
+        //         quant_index_shifted = this->radius + half_index;
+        //     }
+        //     T decompressed_data = pred + quant_index * this->error_bound;
+        //     if (fabs(decompressed_data - data) > this->error_bound) {
+        //         unpred.push_back(data);
+        //         return 0;
+        //     } else {
+        //         data = decompressed_data;
+        //         return quant_index_shifted;
+        //     }
+        // } else {
+        //     unpred.push_back(data);
+        //     return 0;
+        // }
+        // return 0;
     }
 
     /**
