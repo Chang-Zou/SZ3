@@ -10,12 +10,10 @@ install
 qsz/
 decompress.sh
 rebuild.sh
-extract.py
 vx_25.f32
 vx_25.f32.sz
 vx.f32.sz.out
 vx.f32
 vx.f32.sz
-zcompress.sh
 .vscode/
 
