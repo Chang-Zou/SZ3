@@ -1,11 +1,8 @@
 #ifndef _SZ_PREDICTOR_HPP
 #define _SZ_PREDICTOR_HPP
 
-#include <experimental/simd>
-
 #include "SZ3/def.hpp"
 #include "SZ3/utils/Iterator.hpp"
-namespace stdx = std::experimental;
 
 namespace SZ3::concepts {
 
@@ -71,16 +68,6 @@ class PredictorInterface {
      * @return the predicted value
      */
     virtual T predict(const iterator &iter) const noexcept = 0;
-
-    virtual T simd_prequant(iterator &iter) noexcept {
-        // Provide a default implementation if not overridden
-        throw std::runtime_error("simdpredict is not implemented for this predictor.");
-    }
-
-    virtual stdx::native_simd<T> simd_predict(iterator &iter) noexcept {
-        // Provide a default implementation if not overridden
-        throw std::runtime_error("simdpredict is not implemented for this predictor.");
-    }
 
     /**
      * estimate the prediction error ( |prediction value - read value|)  for a single data point
