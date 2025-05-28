@@ -3,17 +3,19 @@
 
 #include <cmath>
 #include <memory>
+#warning "SZIterateCompressor2.hpp included"
 
 #include "SZ3/compressor/SZGenericCompressor.hpp"
 #include "SZ3/compressor/SZIterateCompressor.hpp"
+#include "SZ3/compressor/SZIterateCompressor2.hpp" // added SZitercompress2
 #include "SZ3/decomposition/LorenzoRegressionDecomposition.hpp"
 #include "SZ3/def.hpp"
 #include "SZ3/lossless/Lossless_zstd.hpp"
 #include "SZ3/predictor/ComposedPredictor.hpp"
+#include "SZ3/predictor/DualQuant.hpp"  // added dualquant
 #include "SZ3/predictor/LorenzoPredictor.hpp"
 #include "SZ3/predictor/PolyRegressionPredictor.hpp"
 #include "SZ3/predictor/RegressionPredictor.hpp"
-#include "SZ3/predictor/DualQuant.hpp" // added dualquant
 #include "SZ3/quantizer/LinearQuantizer.hpp"
 #include "SZ3/utils/Config.hpp"
 #include "SZ3/utils/Extraction.hpp"
@@ -36,10 +38,10 @@ std::shared_ptr<concepts::CompressorInterface<T>> make_compressor_typetwo_lorenz
         exit(0);
     }
     // added dualquant
-    if(conf.dualquant){
+    if (conf.dualquant) {
         if (use_single_predictor) {
-            return make_compressor_sz_iterate<T, N>(conf, DualQuantPredictor<T, N, 1>(conf.absErrorBound), quantizer,
-                                                    encoder, lossless);
+            return make_compressor_sz_iterate2<T, N>(conf, DualQuantPredictor<T, N, 1>(conf.absErrorBound), quantizer,
+                                                     encoder, lossless);
         } else {
             predictors.push_back(std::make_shared<LorenzoPredictor<T, N, 1>>(conf.absErrorBound));
         }

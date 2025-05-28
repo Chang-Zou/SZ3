@@ -39,7 +39,7 @@ target_include_directories(
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_compile_features(${PROJECT_NAME}
-        INTERFACE cxx_std_17
+        INTERFACE cxx_std_20 # changed from 17
 )
 
 find_package(OpenMP)
