@@ -7,7 +7,7 @@
 
 #include "SZ3/compressor/SZGenericCompressor.hpp"
 #include "SZ3/compressor/SZIterateCompressor.hpp"
-#include "SZ3/compressor/SZIterateCompressor2.hpp"
+#include "SZ3/compressor/SZIterateCompressor2.hpp" // added SZitercompress2
 #include "SZ3/decomposition/LorenzoRegressionDecomposition.hpp"
 #include "SZ3/def.hpp"
 #include "SZ3/lossless/Lossless_zstd.hpp"

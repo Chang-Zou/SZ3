@@ -3,13 +3,24 @@
 
 #include <cassert>
 #include <experimental/simd>
+//#include </home/changfz/.local/include/vir/simd.h> // direct path need change
+#include <cmath> 
 
 #include "SZ3/def.hpp"
 #include "SZ3/predictor/Predictor.hpp"
 #include "SZ3/utils/Iterator.hpp"
 
 // get sqyuentail working
-namespace stdx = std::experimental;
+//namespace stdx = vir::stdx; //// works require c++20
+
+namespace stdx {
+    using namespace std::experimental;
+    using namespace std::experimental::__proposed;
+}
+
+// get the size
+//template< class T, class Abi = stdx::simd_abi::compatible<T>>
+//constexpr std::size_t simd_size_v = stdx::simd_size<T, Abi>::value;
 // radius of vecsz is always 2048
 namespace SZ3 {
 
@@ -60,8 +71,8 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     bool precompress_block(const std::shared_ptr<Range> &element_range) override {
         size_t batch_size = 4;
         for (auto element = element_range->begin(); element != element_range->end(); element += batch_size) {
-            // printf("in element prequant value %f \n", *element);
-            simd_prequant(element);
+            //printf("in element prequant value %f \n", *element);
+            prequant<float>(element);
         }
         return true;
     }
@@ -104,32 +115,17 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         return 0;
     }
 
-    T simd_prequant(iterator &iter) noexcept override {
-        //   printf("the iterator is %f\n", iter);
-        prequant(iter);
-        // printf("the iterator after is %f\n", iter);
-        // return do_predict(iter);
-        //  do_predict(iter);
+    inline T predict(const iterator &iter) const noexcept override {
         return 0;
     }
 
-    // T simdpredict2(const iterator &iter) const noexcept override {
-    //     // printf("the iterator is %f\n", iter);
-    //     return do_predict(iter);
-    // }
-
-    T predict(const iterator &iter) const noexcept override {
-        // iterator non_const_iter = iter;
-        // // printf("in predict\n");
-        // return simd_predict(non_const_iter);
-        return 0;
-    }
-
-    stdx::native_simd<T> simd_predict(iterator &iter) noexcept override {
+    
+    inline stdx::native_simd<T> simd_predict(const iterator &iter) const noexcept {
         // printf("prediction \n");
         // printsimd(do_predict(iter));
         return do_predict(iter);
     }
+    
     //        void clear() {}
 
    protected:
@@ -143,15 +139,15 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         for (std::size_t i{}; i != std::size(a); ++i) std::cout << a[i] << ' ';
         std::cout << '\n';
     }
-    // void prequant(const stdx::native_simd<T> &simd_vector, const iterator &iter) {
-
-    void prequant(iterator &iter) {
+  
+    template<class TT>
+    inline void prequant(iterator &iter) {
         // printf("the error is %f", eb);  // Perform operations using simd_vector
-        stdx::native_simd<T> simd_vector;
+        stdx::native_simd<TT> simd_vector;
         simd_vector.copy_from(&(*iter), stdx::element_aligned);
-        T divisor = (2 * eb);
+        stdx::native_simd<TT> multipler = static_cast<TT>(ebs_L4);
         // Perform element-wise division
-        stdx::native_simd<T> temp_vector = simd_vector / divisor;
+        stdx::native_simd<TT> temp_vector = stdx::round(simd_vector * multipler);
         // float dataw[4];
         temp_vector.copy_to(&(*iter), stdx::element_aligned);
         // printf("prequantizing\n");
@@ -166,15 +162,18 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     //     temp_vector.copy_to(&element, stdx::vector_aligned);
     // }
     template <uint NN = N, uint LL = L>
-    // Added functions
-
-    stdx::native_simd<T> do_predict(iterator &iter) const noexcept {
+    inline typename std::enable_if<NN == 1 && LL == 1, stdx::native_simd<T>>::type do_predict(const iterator &iter) const noexcept {
         // printf("iter in here is:%f\n", *iter);
         stdx::native_simd<T> simd_vector;
-        simd_vector.copy_from(&(*(--iter)), stdx::element_aligned);
+        iterator temp_iter = iter;
+        simd_vector.copy_from(&(*--temp_iter), stdx::element_aligned);
+        //printsimd(simd_vector);
+        //++iter;
+        
+        
         return simd_vector;
     }
-
+    
     template <uint NN = N, uint LL = L>
     inline typename std::enable_if<NN == 2 && LL == 1, T>::type do_predict(const iterator &iter) const noexcept {
         // New data pass here
@@ -217,7 +216,7 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
                iter.prev(1, 0, 0, 1) - iter.prev(1, 0, 1, 0) + iter.prev(1, 0, 1, 1) - iter.prev(1, 1, 0, 0) +
                iter.prev(1, 1, 0, 1) + iter.prev(1, 1, 1, 0) - iter.prev(1, 1, 1, 1);
     }
-
+    /*
     template <uint NN = N, uint LL = L>
     inline typename std::enable_if<NN == 1 && LL == 2, T>::type do_predict(const iterator &iter) const noexcept {
         printf("here 5\n");
@@ -242,6 +241,7 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
                2 * iter.prev(2, 1, 0) - 4 * iter.prev(2, 1, 1) + 2 * iter.prev(2, 1, 2) - iter.prev(2, 2, 0) +
                2 * iter.prev(2, 2, 1) - iter.prev(2, 2, 2);
     }
+    */
 };
 }  // namespace SZ3
 #endif

@@ -2,7 +2,8 @@
 #define SZ_COMPRESSOR_TYPE_TWO_HPP2
 
 #include <cstring>
-#include <experimental/simd>
+#include <experimental/simd>// simd
+//#include </home/changfz/.local/include/vir/simd.h> // direct path need change
 
 #include "SZ3/compressor/Compressor.hpp"
 #include "SZ3/def.hpp"
@@ -16,7 +17,16 @@
 #include "SZ3/utils/Iterator.hpp"
 #include "SZ3/utils/MemoryUtil.hpp"
 #include "SZ3/utils/Timer.hpp"
-namespace stdx = std::experimental;
+//namespace stdx = std::experimental;
+
+namespace stdx {
+    using namespace std::experimental;
+    using namespace std::experimental::__proposed;
+}
+
+//namespace stdx = vir::stdx; // works require c++20
+
+
 namespace SZ3 {
 /**
  * SZIterateCompressor2 glues together predictor, quantizer, encoder, and lossless modules to form the compressor.
@@ -59,8 +69,6 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
     }
 
     size_t compress(const Config &conf, T *data, uchar *cmpData, size_t cmpCap) override {
-        // printf("ere comes>>> %f", data[5]);
-        //  print(data);
         block_size = 20;
         std::vector<int> quant_inds(num_elements);
         auto block_range = std::make_shared<multi_dimensional_range<T, N>>(data, std::begin(global_dimensions),
@@ -81,7 +89,7 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
         // stdx::native_simd<float> a;
         // a.copy_from(&data[0], stdx::element_aligned);
 
-        size_t batch_size = 4 + 1;
+        size_t batch_size = 4;
         // printf("the total data points are: %d ", conf.num);
         // const int alignment_byte = stdx::memory_alignment_v<stdx::native_simd<float>>;
         // constexpr size_t alignment = alignment_byte;  // Example alignment for SIMD
@@ -98,39 +106,34 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
         // Pre-quant maybe we don't even need to do this block by block?
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
             element_range->update_block_range(block, block_size);
+
+            // This interface doesn't know the existance of dualquant.
             concepts::PredictorInterface<T, N> *predictor_withfallback = &predictor;
             if (!predictor.precompress_block(element_range)) {
                 predictor_withfallback = &fallback_predictor;
             }
             predictor_withfallback->precompress_block_commit();
-            // 75 into 2 forloop one will predict and one will quantize
+
+            stdx::native_simd<T> origElement;
             //  for (auto element = element_range->begin(); element != element_range->end(); ++element) {
             for (auto element = element_range->begin(); element != element_range->end(); element += batch_size) {
-                // stdx::native_simd<float> simd_vector;
-                // simd_vector.copy_from(&(*element), stdx::element_aligned);
-                // printf("in element value %f \n", *element);
-                // printf("in element address %f \n", &(*element));
-                //  printf("in element address: %p \n", (void *)&(*element));  // Prints the address of the element
-                //  // print(simd_vector);
+               
+                // quant_inds[quant_count++] =
+                //  quantizer.quantize_and_overwrite2(&(*element), predictor.simd_predict(element));
+                
+                // do origElement.copy_to(quant_inds[quant_count+=batch_size],stdx::element_aligned);
 
-                // Use predictor with fallback
-                // predictor_withfallback->simd_prequant(element);
-                // predictor_withfallback->simd_predict(element);
-                // predictor_withfallback->simd_predict(element);
-                // predictor_withfallback->simd_predict(element);
-                // printsimd(predictor_withfallback->simd_predict(element));
+                origElement.copy_from(&(*element),stdx::element_aligned);
 
-                std::vector<T> quantized_values =
-                    quantizer.quantize_and_overwrite2(&(*element), predictor_withfallback->simd_predict(element));
-                for (int i = 0; i < quantized_values.size(); ++i) {
-                    quant_inds[quant_count++] = quantized_values[i];
-                }
-
+                auto tempstorage = quantizer.quantize_and_overwrite2(origElement, predictor.simd_predict(element));
+                tempstorage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                quant_count = quant_count + batch_size;
                 // quant_inds[quant_count++] =
                 //     quantizer.quantize_and_overwrite2(&(*element), 1, predictor_withfallback->simd_predict(element));
             }
             // quant_inds[quant_count++] =
             //     quantizer.quantize_and_overwrite(*element, predictor_withfallback->predict(element));
+            
         }
 
         // Post quantization
