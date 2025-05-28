@@ -1,11 +1,11 @@
 import struct
 
 # Input and output file names
-input_file = "vx.f32"
-output_file = "vx_25.f32"
+input_file = "../vx.f32"
+output_file = "../vx_modifedFixSize.f32"
 
 # Number of points to extract
-num_points = 4096
+num_points = 280953864
 data_type = "f"  # float32
 
 try:
