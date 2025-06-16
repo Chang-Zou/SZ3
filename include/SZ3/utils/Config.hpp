@@ -174,9 +174,9 @@ class Config {
             write(absErrorBound, c);
             write(relErrorBound, c);
         }
-
+        // add dualquant here
         uint8_t boolvals = (lorenzo & 1) << 7 | (lorenzo2 & 1) << 6 | (regression & 1) << 5 | (regression2 & 1) << 4 |
-                           (openmp & 1) << 3;
+                           (openmp & 1) << 3 | (dualquant & 1) << 2;
         write(boolvals, c);
 
         write(dataType, c);
@@ -243,6 +243,7 @@ class Config {
         regression = (boolvals >> 5) & 1;
         regression2 = (boolvals >> 4) & 1;
         openmp = (boolvals >> 3) & 1;
+        dualquant = (boolvals >> 2) & 1;
 
         read(dataType, c);
         read(lossless, c);
