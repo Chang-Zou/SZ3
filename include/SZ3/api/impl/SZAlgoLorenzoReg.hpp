@@ -109,7 +109,8 @@ void SZ_decompress_LorenzoReg(const Config &conf, const uchar *cmpData, size_t c
 
     auto cmpDataPos = cmpData;
     LinearQuantizer<T> quantizer;
-    if ((N == 3 && !conf.regression2) || (N == 1 && !conf.regression && !conf.regression2)) {
+    // Change N ==2 to force make_compressor_type2 run
+    if ((N == 3 && !conf.regression2) || (N == 2 && !conf.regression && !conf.regression2)) {
         // use fast version for 3D
         auto sz = make_compressor_sz_generic<T, N>(make_decomposition_lorenzo_regression<T, N>(conf, quantizer),
                                                    HuffmanEncoder<int>(), Lossless_zstd());

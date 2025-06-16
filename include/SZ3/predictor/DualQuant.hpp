@@ -79,7 +79,7 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
 
     void precompress_block_commit() noexcept override {}
 
-    bool predecompress_block(const std::shared_ptr<Range> &) override { return true; }
+    bool predecompress_block(const std::shared_ptr<Range> &) override {return true;}
 
     /*
      * save doesn't need to store anything except the id
@@ -116,14 +116,15 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     }
 
     inline T predict(const iterator &iter) const noexcept override {
-        return 0;
+        //return 0;
+        return do_predict(iter);
     }
 
     
     inline stdx::native_simd<T> simd_predict(const iterator &iter) const noexcept {
         // printf("prediction \n");
         // printsimd(do_predict(iter));
-        return do_predict(iter);
+        return do_simdpredict(iter);
     }
     
     //        void clear() {}
@@ -153,16 +154,9 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         // printf("prequantizing\n");
         // printsimd(temp_vector);
     }
-    // void prequant2(const stdx::native_simd<T> &simd_vector, &element) {
-    //     printf("the error is %f", eb);  // Perform operations using simd_vector
-    //     float divisor = static_cast<float>(2 * eb);
-    //     // Perform element-wise division
-    //     stdx::native_simd<T> temp_vector = simd_vector / divisor;
-    //     //  printf("the copy index is %d:\n", copy_index);
-    //     temp_vector.copy_to(&element, stdx::vector_aligned);
-    // }
+
     template <uint NN = N, uint LL = L>
-    inline typename std::enable_if<NN == 1 && LL == 1, stdx::native_simd<T>>::type do_predict(const iterator &iter) const noexcept {
+    inline typename std::enable_if<NN == 1 && LL == 1, stdx::native_simd<T>>::type do_simdpredict(const iterator &iter) const noexcept {
         // printf("iter in here is:%f\n", *iter);
         stdx::native_simd<T> simd_vector;
         iterator temp_iter = iter;
@@ -175,7 +169,7 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     }
     
     template <uint NN = N, uint LL = L>
-    inline typename std::enable_if<NN == 2 && LL == 1, T>::type do_predict(const iterator &iter) const noexcept {
+    inline typename std::enable_if<NN == 2 && LL == 1, T>::type do_simdpredict(const iterator &iter) const noexcept {
         // New data pass here
         // Same operations on all 4 data
         // printf("here 2\n");
@@ -202,20 +196,69 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     }
 
     template <uint NN = N, uint LL = L>
-    inline typename std::enable_if<NN == 3 && LL == 1, T>::type do_predict(const iterator &iter) const noexcept {
+    inline typename std::enable_if<NN == 3 && LL == 1, T>::type do_simdpredict(const iterator &iter) const noexcept {
         printf("here 3\n");
         return iter.prev(0, 0, 1) + iter.prev(0, 1, 0) + iter.prev(1, 0, 0) - iter.prev(0, 1, 1) - iter.prev(1, 0, 1) -
                iter.prev(1, 1, 0) + iter.prev(1, 1, 1);
     }
 
     template <uint NN = N, uint LL = L>
-    inline typename std::enable_if<NN == 4, T>::type do_predict(const iterator &iter) const noexcept {
+    inline typename std::enable_if<NN == 4, T>::type do_simdpredict(const iterator &iter) const noexcept {
         printf("here 4\n");
         return iter.prev(0, 0, 0, 1) + iter.prev(0, 0, 1, 0) - iter.prev(0, 0, 1, 1) + iter.prev(0, 1, 0, 0) -
                iter.prev(0, 1, 0, 1) - iter.prev(0, 1, 1, 0) + iter.prev(0, 1, 1, 1) + iter.prev(1, 0, 0, 0) -
                iter.prev(1, 0, 0, 1) - iter.prev(1, 0, 1, 0) + iter.prev(1, 0, 1, 1) - iter.prev(1, 1, 0, 0) +
                iter.prev(1, 1, 0, 1) + iter.prev(1, 1, 1, 0) - iter.prev(1, 1, 1, 1);
     }
+
+    //Iterative prediction
+    template <uint NN = N, uint LL = L>
+    inline typename std::enable_if<NN == 1 && LL == 1, T>::type do_predict(const iterator &iter) const noexcept {
+        return iter.prev(1);
+    }
+
+    template <uint NN = N, uint LL = L>
+    inline typename std::enable_if<NN == 2 && LL == 1, T>::type do_predict(const iterator &iter) const noexcept {
+        return iter.prev(0, 1) + iter.prev(1, 0) - iter.prev(1, 1);
+    }
+
+    template <uint NN = N, uint LL = L>
+    inline typename std::enable_if<NN == 3 && LL == 1, T>::type do_predict(const iterator &iter) const noexcept {
+        return iter.prev(0, 0, 1) + iter.prev(0, 1, 0) + iter.prev(1, 0, 0) - iter.prev(0, 1, 1) - iter.prev(1, 0, 1) -
+               iter.prev(1, 1, 0) + iter.prev(1, 1, 1);
+    }
+
+    template <uint NN = N, uint LL = L>
+    inline typename std::enable_if<NN == 4, T>::type do_predict(const iterator &iter) const noexcept {
+        return iter.prev(0, 0, 0, 1) + iter.prev(0, 0, 1, 0) - iter.prev(0, 0, 1, 1) + iter.prev(0, 1, 0, 0) -
+               iter.prev(0, 1, 0, 1) - iter.prev(0, 1, 1, 0) + iter.prev(0, 1, 1, 1) + iter.prev(1, 0, 0, 0) -
+               iter.prev(1, 0, 0, 1) - iter.prev(1, 0, 1, 0) + iter.prev(1, 0, 1, 1) - iter.prev(1, 1, 0, 0) +
+               iter.prev(1, 1, 0, 1) + iter.prev(1, 1, 1, 0) - iter.prev(1, 1, 1, 1);
+    }
+
+    template <uint NN = N, uint LL = L>
+    inline typename std::enable_if<NN == 1 && LL == 2, T>::type do_predict(const iterator &iter) const noexcept {
+        return 2 * iter.prev(1) - iter.prev(2);
+    }
+
+    template <uint NN = N, uint LL = L>
+    inline typename std::enable_if<NN == 2 && LL == 2, T>::type do_predict(const iterator &iter) const noexcept {
+        return 2 * iter.prev(0, 1) - iter.prev(0, 2) + 2 * iter.prev(1, 0) - 4 * iter.prev(1, 1) + 2 * iter.prev(1, 2) -
+               iter.prev(2, 0) + 2 * iter.prev(2, 1) - iter.prev(2, 2);
+    }
+
+    template <uint NN = N, uint LL = L>
+    inline typename std::enable_if<NN == 3 && LL == 2, T>::type do_predict(const iterator &iter) const noexcept {
+        return 2 * iter.prev(0, 0, 1) - iter.prev(0, 0, 2) + 2 * iter.prev(0, 1, 0) - 4 * iter.prev(0, 1, 1) +
+               2 * iter.prev(0, 1, 2) - iter.prev(0, 2, 0) + 2 * iter.prev(0, 2, 1) - iter.prev(0, 2, 2) +
+               2 * iter.prev(1, 0, 0) - 4 * iter.prev(1, 0, 1) + 2 * iter.prev(1, 0, 2) - 4 * iter.prev(1, 1, 0) +
+               8 * iter.prev(1, 1, 1) - 4 * iter.prev(1, 1, 2) + 2 * iter.prev(1, 2, 0) - 4 * iter.prev(1, 2, 1) +
+               2 * iter.prev(1, 2, 2) - iter.prev(2, 0, 0) + 2 * iter.prev(2, 0, 1) - iter.prev(2, 0, 2) +
+               2 * iter.prev(2, 1, 0) - 4 * iter.prev(2, 1, 1) + 2 * iter.prev(2, 1, 2) - iter.prev(2, 2, 0) +
+               2 * iter.prev(2, 2, 1) - iter.prev(2, 2, 2);
+    }
+
+
     /*
     template <uint NN = N, uint LL = L>
     inline typename std::enable_if<NN == 1 && LL == 2, T>::type do_predict(const iterator &iter) const noexcept {

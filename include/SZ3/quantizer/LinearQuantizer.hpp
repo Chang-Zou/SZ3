@@ -97,121 +97,30 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     template <typename TP>
     stdx::native_simd<TP> quantize_and_overwrite2(const stdx::native_simd<TP> data, const stdx::native_simd<TP> &pred) { 
         stdx::native_simd<TP> diff = data - pred; // find the difference
-        //stdx::native_simd<TP> eb_rec = static_cast<TP>(this->error_bound_reciprocal); // grab error bound recp -> simd register
+        //stdx::native_simd<TP> eb = static_cast<TP>(this->error_bound*2); 
         //stdx::native_simd<TP> radius = static_cast<TP>(this->radius *2); // grab radius -> simd register
         //stdx::native_simd<TP> radiusX2 = radius*2; // 2x radius
 
-        using floatv = stdx::native_simd<TP>;
+        //using floatv = stdx::native_simd<TP>;
         using maskv = stdx::native_simd_mask<TP>;
-        using maskintv = stdx::rebind_simd_t<int, maskv>;
-        using intv = stdx::rebind_simd_t<int, floatv>;
+        //using maskintv = stdx::rebind_simd_t<int, maskv>;
+        //using intv = stdx::rebind_simd_t<int, floatv>;
 
-        maskv quantizable = (my_fabs(diff) < this->radius*2); // are you quantizable? in float
-        maskintv quant_int = stdx::static_simd_cast<maskintv>(quantizable);
-        auto _codefloat = diff + radius; // _code in float
-        auto _code = stdx::static_simd_cast<intv>(_codefloat); // int code representation of the float values
+        maskv quantizable = (my_fabs(diff) < this->radius); // are you quantizable? in float
+        //maskintv quant_int = stdx::static_simd_cast<maskintv>(quantizable);
+        auto quant_index = diff + radius; // _code in float
+        //auto _code = stdx::static_simd_cast<intv>(_codefloat); // int code representation of the float values
 
-        //intv _code = vir::cvt(diff + radius); // need c++20
-        //intv quantizable_int = vir::simd_size_cast<intv>(quantizable);
-
-        stdx::native_simd<TP> outlier = data;
-        where(quantizable,outlier) *= 0; // if quantizable then it is not outlier
-        where(!quant_int,_code) *= 0;
-        for(std::size_t i=0; i != outlier.size(); i++){
+        //stdx::native_simd<TP> outlier = data;
+        //where(quantizable,outlier) *= 0; // if quantizable then it is not outlier
+        where(!quantizable,quant_index) *= 0;
+        for(std::size_t i=0; i != data.size(); i++){
             if(!quantizable[i]){
                 unpred.push_back(data[i]);
             }
         }
 
-        return  stdx::static_simd_cast<floatv>(_code);
-
-
-        // if (quant_index < this->radius * 2) { //vector bools
-        //     quant_index >>= 1;
-        //     int half_index = quant_index;
-        //     quant_index <<= 1;
-        //     int quant_index_shifted;
-        //     if (diff < 0) {
-        //         quant_index = -quant_index;
-        //         quant_index_shifted = this->radius - half_index;
-        //     } else {
-        //         quant_index_shifted = this->radius + half_index;
-        //     }
-        //     T decompressed_data = pred + quant_index * this->error_bound;
-        //     if (fabs(decompressed_data - data) > this->error_bound) {
-        //         unpred.push_back(data);
-        //         return 0;
-        //     } else {
-        //         data = decompressed_data;
-        //         return quant_index_shifted;
-        //     }cl
-        // } else {
-        //     unpred.push_back(data);
-        //     return 0;
-        // }
-        // return 0;*/
-
-        /*
-        //data_vector.copy_from(data, stdx::element_aligned);
-        //stdx::native_simd<T> diff_vector = data_vector - pred_vector;
-        /*
-        for (size_t i = 0; i < diff_vector.size(); ++i) {  // Iterate over the SIMD lanes
-            T diff = diff_vector[i];
-            auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
-            if (quant_index < this->radius * 2) {
-                quant_index >>= 1;
-                int half_index = quant_index;
-                quant_index <<= 1;
-                int quant_index_shifted;
-                if (diff < 0) {
-                    quant_index = -quant_index;
-                    quant_index_shifted = this->radius - half_index;
-                } else {
-                    quant_index_shifted = this->radius + half_index;
-                }
-                T decompressed_data = pred_vector[0] + quant_index * this->error_bound;
-                if (fabs(decompressed_data - data[i]) > this->error_bound) {
-                    unpred.push_back(data[i]);
-                    result[i] = 0;
-                } else {
-                    data[i] = decompressed_data;
-                    result[i] = quant_index_shifted;
-                }
-            } else {
-                unpred.push_back(data[i]);
-                result[i] = 0;
-            }
-        }
-        return result;  // Return vector of size 4
-                        // T diff = data - pred;\
-        */
-
-        // auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
-        // if (quant_index < this->radius * 2) {
-        //     quant_index >>= 1;
-        //     int half_index = quant_index;
-        //     quant_index <<= 1;
-        //     int quant_index_shifted;
-        //     if (diff < 0) {
-        //         quant_index = -quant_index;
-        //         quant_index_shifted = this->radius - half_index;
-        //     } else {
-        //         quant_index_shifted = this->radius + half_index;
-        //     }
-        //     T decompressed_data = pred + quant_index * this->error_bound;
-        //     if (fabs(decompressed_data - data) > this->error_bound) {
-        //         unpred.push_back(data);
-        //         return 0;
-        //     } else {
-        //         data = decompressed_data;
-        //         return quant_index_shifted;
-        //     }cl
-        // } else {
-        //     unpred.push_back(data);
-        //     return 0;
-        // }
-        // return 0;*/
-
+        return  quant_index;
     }
 
     /**
@@ -260,9 +169,34 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
         }
     }
 
+    // error bound double in results
+    // T simdrecover(T pred, int quant_index) {
+    //     if (quant_index) {
+    //         return recover_pred(pred, quant_index);
+    //     } else {
+    //         return recover_dualunpred();
+    //     }
+    // }
+    
+    // post quant recover back to prequant state
+    T recoverPostQ(T pred, int quant_index) {
+        if(quant_index){
+            return (pred + (quant_index - this->radius));
+        }else{
+            return recover_unpred(); // return prequant data if false
+        }
+    }
+
+    // prequant recover back to orig data within errorbound
+    T PreQrecover(T pred){
+        return (2 * this->error_bound * pred);
+    }
+
     T recover_pred(T pred, int quant_index) { return pred + 2 * (quant_index - this->radius) * this->error_bound; }
 
     T recover_unpred() { return unpred[index++]; }
+
+    //T recover_dualunpred() { return  2 * this->error_bound * unpred[index++]; } errors
 
     size_t size_est() { return unpred.size() * sizeof(T); }
 
