@@ -7,14 +7,9 @@
 #include <vector>
 #include <type_traits>
 #include <experimental/simd>
-//#include </home/changfz/.local/include/vir/simd.h> // direct path need change
-//#include </home/changfz/.local/include/vir/simd_cvt.h> // direct path need change
-//#include </home/changfz/.local/include/vir/simd_resize.h> // direct path need change
 
 #include "SZ3/def.hpp"
 #include "SZ3/quantizer/Quantizer.hpp"
-
-//namespace stdx = vir::stdx; // works require c++20
 
 
 namespace stdx {
@@ -46,8 +41,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     // quantize the data with a prediction value, and returns the quantization index and the decompressed data
     // int quantize(T data, T pred, T& dec_data);
 
-    int quantize_and_overwrite(T &data, T pred) override {
-        // int quantize_and_overwrite(T &data, const stdx::native_simd<float> &simd_vector) override {
+    inline int quantize_and_overwrite(T &data, T pred) override {
         T diff = data - pred;
         auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
         if (quant_index < this->radius * 2) {
@@ -83,7 +77,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     fabs wrapper function
     */
     template <typename Q>
-    Q my_fabs(Q value){
+    inline Q my_fabs(Q value){
         using valueType = typename Q::value_type;
 
         if constexpr (std::is_same_v<valueType, float> || std::is_same_v<valueType, double>){
@@ -95,33 +89,32 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     
 
     template <typename TP>
-    stdx::native_simd<TP> quantize_and_overwrite2(const stdx::native_simd<TP> data, const stdx::native_simd<TP> &pred) { 
-        stdx::native_simd<TP> diff = data - pred; // find the difference
-        //stdx::native_simd<TP> eb = static_cast<TP>(this->error_bound*2); 
-        //stdx::native_simd<TP> radius = static_cast<TP>(this->radius *2); // grab radius -> simd register
-        //stdx::native_simd<TP> radiusX2 = radius*2; // 2x radius
-
-        //using floatv = stdx::native_simd<TP>;
+    inline stdx::native_simd<TP> quantize_and_overwrite2(const stdx::native_simd<TP> data, const stdx::native_simd<TP> &pred) { 
+        stdx::native_simd<TP> diff = data - pred; 
         using maskv = stdx::native_simd_mask<TP>;
-        //using maskintv = stdx::rebind_simd_t<int, maskv>;
-        //using intv = stdx::rebind_simd_t<int, floatv>;
-
-        maskv quantizable = (my_fabs(diff) < this->radius); // are you quantizable? in float
-        //maskintv quant_int = stdx::static_simd_cast<maskintv>(quantizable);
-        auto quant_index = diff + radius; // _code in float
-        //auto _code = stdx::static_simd_cast<intv>(_codefloat); // int code representation of the float values
-
-        //stdx::native_simd<TP> outlier = data;
-        //where(quantizable,outlier) *= 0; // if quantizable then it is not outlier
+        maskv quantizable = (my_fabs(diff) < this->radius); 
+        auto quant_index = diff + radius;
         where(!quantizable,quant_index) *= 0;
         for(std::size_t i=0; i != data.size(); i++){
             if(!quantizable[i]){
                 unpred.push_back(data[i]);
             }
         }
-
         return  quant_index;
     }
+    
+    // sequential for simd registers
+    inline int quantize_and_overwrite3(T &data, T pred) {
+        T diff = data - pred;
+        bool quantizable = fabs(diff) < radius;
+        int quant_index = static_cast<int>(diff + radius);
+        if(!quantizable){
+            unpred.push_back(data);
+            quant_index = 0;
+        }
+        return quant_index;
+    }
+
 
     /**
      * For metaLorenzo only, will be removed together with metalorenzo
@@ -130,7 +123,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
      * @param dest
      * @return
      */
-    int quantize_and_overwrite(T ori, T pred, T &dest) {
+    inline int quantize_and_overwrite(T ori, T pred, T &dest) {
         T diff = ori - pred;
         auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
         if (quant_index < this->radius * 2) {
@@ -161,7 +154,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     }
 
     // recover the data using the quantization index
-    T recover(T pred, int quant_index) override {
+    inline T recover(T pred, int quant_index) override {
         if (quant_index) {
             return recover_pred(pred, quant_index);
         } else {
@@ -179,7 +172,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     // }
     
     // post quant recover back to prequant state
-    T recoverPostQ(T pred, int quant_index) {
+    inline T recoverPostQ(T pred, int quant_index) {
         if(quant_index){
             return (pred + (quant_index - this->radius));
         }else{
@@ -188,15 +181,20 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     }
 
     // prequant recover back to orig data within errorbound
-    T PreQrecover(T pred){
+    template <typename TP>
+    inline stdx::native_simd<TP> PreQrecover(stdx::native_simd<TP> pred){
+        stdx::native_simd<TP> eb = static_cast<TP>(this->error_bound);
+        return (2* eb * pred);
+        //return (2 * this->error_bound * pred);
+    }
+
+    inline T PreQrecover_seq(T pred){
         return (2 * this->error_bound * pred);
     }
 
-    T recover_pred(T pred, int quant_index) { return pred + 2 * (quant_index - this->radius) * this->error_bound; }
+    inline T recover_pred(T pred, int quant_index) { return pred + 2 * (quant_index - this->radius) * this->error_bound; }
 
-    T recover_unpred() { return unpred[index++]; }
-
-    //T recover_dualunpred() { return  2 * this->error_bound * unpred[index++]; } errors
+    inline T recover_unpred() { return unpred[index++]; }
 
     size_t size_est() { return unpred.size() * sizeof(T); }
 

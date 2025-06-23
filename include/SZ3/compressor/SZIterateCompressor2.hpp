@@ -3,7 +3,6 @@
 
 #include <cstring>
 #include <experimental/simd>// simd
-//#include </home/changfz/.local/include/vir/simd.h> // direct path need change
 
 #include "SZ3/compressor/Compressor.hpp"
 #include "SZ3/def.hpp"
@@ -17,7 +16,6 @@
 #include "SZ3/utils/Iterator.hpp"
 #include "SZ3/utils/MemoryUtil.hpp"
 #include "SZ3/utils/Timer.hpp"
-//namespace stdx = std::experimental;
 
 namespace stdx {
     using namespace std::experimental;
@@ -69,7 +67,6 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
     }
 
     size_t compress(const Config &conf, T *data, uchar *cmpData, size_t cmpCap) override {
-        block_size = 20;
         std::vector<int> quant_inds(num_elements);
         auto block_range = std::make_shared<multi_dimensional_range<T, N>>(data, std::begin(global_dimensions),
                                                                            std::end(global_dimensions), block_size, 0);
@@ -80,28 +77,8 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
         predictor.precompress_data(block_range->begin());
         quantizer.precompress_data();
         size_t quant_count = 0;
-
-        // alignas(32) type name_of_array
-        // const int alignment_byte = stdx::memory_alignment_v<stdx::native_simd<float>>;
-        // // printf("the alignment byte is: %d", alignment_byte);
-        // // printf("thetype is: %s ", block_range[1]);
-        // alignas(alignment_byte) std::array<float, stdx::native_simd<float>::size()> data = {};
-        // stdx::native_simd<float> a;
-        // a.copy_from(&data[0], stdx::element_aligned);
-
-        size_t batch_size = 4;
-        // printf("the total data points are: %d ", conf.num);
-        // const int alignment_byte = stdx::memory_alignment_v<stdx::native_simd<float>>;
-        // constexpr size_t alignment = alignment_byte;  // Example alignment for SIMD
-
-        // size_t dataSize = sizeof(T) * conf.num;
-
-        // T *data2 = static_cast<T *>(std::aligned_alloc(alignment, dataSize));
-        // for (size_t i = 0; i < conf.num; i += batch_size) {
-        //     stdx::native_simd<float> simd_vector;
-        //     simd_vector.copy_from(&data[i], stdx::element_aligned);
-        //     predictor.simdpredict(simd_vector, i, data2);
-        // }
+        size_t batch_size = stdx::native_simd<T>::size();
+        stdx::native_simd<T> orig_element;
 
         // Pre-quant maybe we don't even need to do this block by block?
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
@@ -114,13 +91,42 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
             }
             predictor_withfallback->precompress_block_commit();
 
-            stdx::native_simd<T> origElement;
-            //  for (auto element = element_range->begin(); element != element_range->end(); ++element) {
-            for (auto element = element_range->begin(); element != element_range->end(); element += batch_size) {
-                origElement.copy_from(&(*element),stdx::element_aligned);
-                auto tempstorage = quantizer.quantize_and_overwrite2(origElement, predictor.simd_predict(element));
-                tempstorage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
-                quant_count = quant_count + batch_size;
+            size_t element_size = element_range->get_dimensions()[0];
+            auto element = element_range->begin();
+
+            if(element_size % batch_size == 0){ // fits in SIMD register completely
+                for(; element != element_range->end(); element += batch_size) {
+                    orig_element.copy_from(&(*element),stdx::element_aligned);
+                    auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
+                    temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                    quant_count = quant_count + batch_size;
+                }
+            }else{
+                size_t element_end = 0;
+                switch(batch_size){
+                    case 16:
+                        element_end = (element_size & ~0xF);
+                        break;
+                    case 8:
+                        element_end = (element_size & ~0x7);
+                        break;
+                    case 4:
+                        element_end = (element_size & ~0x3);
+                        break;
+                    default:
+                        element_end = (element_size & ~0x3);
+                        break;   
+                }
+                for(; element.get_local_index(0) < element_end; element += batch_size) {
+                    orig_element.copy_from(&(*element),stdx::element_aligned);
+                    auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
+                    temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                    quant_count = quant_count + batch_size;
+                }
+                for(; element != element_range->end(); element++) {
+                    quant_inds[quant_count++] =
+                        quantizer.quantize_and_overwrite3(*element, predictor_withfallback->predict(element));
+                }
             }
         }
 
@@ -209,11 +215,47 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
             }
         }
 
+        size_t quant_count = 0;
+        size_t batch_size = stdx::native_simd<T>::size();
+        stdx::native_simd<T> orig_element;
+
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
             element_range->update_block_range(block, block_size);
-            
-            for (auto element = element_range->begin(); element != element_range->end(); ++element) {
-                *element = quantizer.PreQrecover(*element);
+            auto element = element_range->begin();
+            size_t element_size = element_range->get_dimensions()[0];
+
+            if(element_size % batch_size == 0){
+                for (; element != element_range->end(); element += batch_size) {
+                    orig_element.copy_from(&(*element),stdx::element_aligned);
+                    auto temp_storage = quantizer.PreQrecover(orig_element);
+                    temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
+                    quant_count = quant_count+ batch_size;
+                }
+            }else{
+                size_t element_end = 0;
+                switch(batch_size){
+                    case 16:
+                        element_end = (element_size & ~0xF);
+                        break;
+                    case 8:
+                        element_end = (element_size & ~0x7);
+                        break;
+                    case 4:
+                        element_end = (element_size & ~0x3);
+                        break;
+                    default:
+                        element_end = (element_size & ~0x3);
+                        break;   
+                }
+                for (; element.get_local_index(0) < element_end; element += batch_size) {
+                    orig_element.copy_from(&(*element),stdx::element_aligned);
+                    auto temp_storage = quantizer.PreQrecover(orig_element);
+                    temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
+                    quant_count = quant_count+ batch_size;
+                }
+                for (; element != element_range->end(); element++) {
+                    *element = quantizer.PreQrecover_seq(*element);
+                }
             }
         }
 
