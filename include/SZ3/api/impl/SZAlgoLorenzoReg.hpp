@@ -89,13 +89,14 @@ size_t SZ_compress_LorenzoReg(Config &conf, T *data, uchar *cmpData, size_t cmpC
     calAbsErrorBound(conf, data);
 
     auto quantizer = LinearQuantizer<T>(conf.absErrorBound, conf.quantbinCnt / 2);
-    // Change N ==2 to force make_compressor_type2 run
-    if ((N == 3 && !conf.regression2) || (N == 2 && !conf.regression && !conf.regression2)) {
-        // use fast version for 3D
-        auto sz = make_compressor_sz_generic<T, N>(make_decomposition_lorenzo_regression<T, N>(conf, quantizer),
-                                                   HuffmanEncoder<int>(), Lossless_zstd());
-        return sz->compress(conf, data, cmpData, cmpCap);
-    } else {
+    // Change N ==2 to force make_compressor_type2 run orig is: (N == 1 && !conf.regression && !conf.regression2 )
+    // if ((N == 3 && !conf.regression2) || (N == 1 && !conf.regression && !conf.regression2 )) {
+    //     // use fast version for 3D
+    //     auto sz = make_compressor_sz_generic<T, N>(make_decomposition_lorenzo_regression<T, N>(conf, quantizer),
+    //                                                HuffmanEncoder<int>(), Lossless_zstd());
+    //     return sz->compress(conf, data, cmpData, cmpCap);
+    // } else {
+    if(true){
         auto sz =
             make_compressor_typetwo_lorenzo_regression<T, N>(conf, quantizer, HuffmanEncoder<int>(), Lossless_zstd());
         return sz->compress(conf, data, cmpData, cmpCap);
@@ -109,15 +110,15 @@ void SZ_decompress_LorenzoReg(const Config &conf, const uchar *cmpData, size_t c
 
     auto cmpDataPos = cmpData;
     LinearQuantizer<T> quantizer;
-    // Change N ==2 to force make_compressor_type2 run
-    if ((N == 3 && !conf.regression2) || (N == 2 && !conf.regression && !conf.regression2)) {
-        // use fast version for 3D
-        auto sz = make_compressor_sz_generic<T, N>(make_decomposition_lorenzo_regression<T, N>(conf, quantizer),
-                                                   HuffmanEncoder<int>(), Lossless_zstd());
-        sz->decompress(conf, cmpDataPos, cmpSize, decData);
-        return;
-
-    } else {
+    // Change N ==2 to force make_compressor_type2 run orig is: (N == 1 && !conf.regression && !conf.regression2 )
+    // if ((N == 3 && !conf.regression2) || (N == 1 && !conf.regression && !conf.regression2 )) {
+    //     // use fast version for 3D
+    //     auto sz = make_compressor_sz_generic<T, N>(make_decomposition_lorenzo_regression<T, N>(conf, quantizer),
+    //                                                HuffmanEncoder<int>(), Lossless_zstd());
+    //     sz->decompress(conf, cmpDataPos, cmpSize, decData);
+    //     return;
+    // } else {
+    if(true){
         auto sz =
             make_compressor_typetwo_lorenzo_regression<T, N>(conf, quantizer, HuffmanEncoder<int>(), Lossless_zstd());
         sz->decompress(conf, cmpDataPos, cmpSize, decData);

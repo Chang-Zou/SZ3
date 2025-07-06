@@ -91,41 +91,77 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
             }
             predictor_withfallback->precompress_block_commit();
 
-            size_t element_size = element_range->get_dimensions()[0];
+            size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
             auto element = element_range->begin();
 
-            if(element_size % batch_size == 0){ // fits in SIMD register completely
-                for(; element != element_range->end(); element += batch_size) {
-                    orig_element.copy_from(&(*element),stdx::element_aligned);
-                    auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
-                    temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
-                    quant_count = quant_count + batch_size;
+            if(N == 1){
+                if(element_size % batch_size == 0){ // fits in SIMD register completely
+                    for(; element != element_range->end(); element += batch_size) {
+                        orig_element.copy_from(&(*element),stdx::element_aligned);
+                        auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
+                        temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                        quant_count = quant_count + batch_size;
+                    }
+                }else{
+                    size_t element_end = 0;
+                    size_t count = 0;
+                    switch(batch_size){
+                        case 16:
+                            element_end = (element_size & ~0xF);
+                            break;
+                        case 8:
+                            element_end = (element_size & ~0x7);
+                            break;
+                        case 4:
+                            element_end = (element_size & ~0x3);
+                            break;
+                        default:
+                            element_end = (element_size & ~0x3);
+                            break;   
+                    }
+                    for(; count < element_end; element += batch_size) {
+                        orig_element.copy_from(&(*element),stdx::element_aligned);
+                        auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
+                        temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                        quant_count = quant_count + batch_size;
+                        count +=batch_size;
+                    }
+                    for(; element != element_range->end(); ++element) {
+                        quant_inds[quant_count++] =
+                            quantizer.quantize_and_overwrite3(*element, predictor_withfallback->predict(element));
+                    }
                 }
-            }else{
-                size_t element_end = 0;
-                switch(batch_size){
-                    case 16:
-                        element_end = (element_size & ~0xF);
-                        break;
-                    case 8:
-                        element_end = (element_size & ~0x7);
-                        break;
-                    case 4:
-                        element_end = (element_size & ~0x3);
-                        break;
-                    default:
-                        element_end = (element_size & ~0x3);
-                        break;   
-                }
-                for(; element.get_local_index(0) < element_end; element += batch_size) {
-                    orig_element.copy_from(&(*element),stdx::element_aligned);
-                    auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
-                    temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
-                    quant_count = quant_count + batch_size;
-                }
-                for(; element != element_range->end(); element++) {
-                    quant_inds[quant_count++] =
-                        quantizer.quantize_and_overwrite3(*element, predictor_withfallback->predict(element));
+            }else{ //N == 2
+                auto row = element.get_dimensions()[0];
+                auto col = element.get_dimensions()[1];
+                if((element_size % batch_size == 0) && (col % batch_size == 0)){ // fits in SIMD register completely
+                    for(; element != element_range->end(); element += batch_size) {
+                        orig_element.copy_from(&(*element),stdx::element_aligned);
+                        auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
+                        temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                        quant_count = quant_count + batch_size;
+                    }
+                }else if (col > batch_size && col % batch_size !=0) {
+                    while(element != element_range->end()){
+                        size_t count = 0;
+                        for(; count + batch_size < col; element+=batch_size){
+                            orig_element.copy_from(&(*element),stdx::element_aligned);
+                            auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
+                            temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                            quant_count = quant_count + batch_size;
+                            count +=batch_size;
+                        }
+                        for(; count < col; ++element){
+                            quant_inds[quant_count++] =
+                                quantizer.quantize_and_overwrite3(*element, predictor_withfallback->predict(element));
+                            count++;
+                        }
+                    }
+                }else{
+                    for(; element != element_range->end(); ++element) {
+                        quant_inds[quant_count++] =
+                            quantizer.quantize_and_overwrite3(*element, predictor_withfallback->predict(element));
+                    }
                 }
             }
         }
@@ -222,39 +258,71 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
             element_range->update_block_range(block, block_size);
             auto element = element_range->begin();
-            size_t element_size = element_range->get_dimensions()[0];
+            size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
 
-            if(element_size % batch_size == 0){
-                for (; element != element_range->end(); element += batch_size) {
-                    orig_element.copy_from(&(*element),stdx::element_aligned);
-                    auto temp_storage = quantizer.PreQrecover(orig_element);
-                    temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
-                    quant_count = quant_count+ batch_size;
+            if(N == 1){
+                if(element_size % batch_size == 0){
+                    for (; element != element_range->end(); element += batch_size) {
+                        orig_element.copy_from(&(*element),stdx::element_aligned);
+                        auto temp_storage = quantizer.PreQrecover(orig_element);
+                        temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
+                        quant_count = quant_count+ batch_size;
+                    }
+                }else{
+                    size_t element_end = 0;
+                    size_t count = 0;
+                    switch(batch_size){
+                        case 16:
+                            element_end = (element_size & ~0xF);
+                            break;
+                        case 8:
+                            element_end = (element_size & ~0x7);
+                            break;
+                        case 4:
+                            element_end = (element_size & ~0x3);
+                            break;
+                        default:
+                            element_end = (element_size & ~0x3);
+                            break;   
+                    }
+                    for (; count < element_end; element += batch_size) {
+                        orig_element.copy_from(&(*element),stdx::element_aligned);
+                        auto temp_storage = quantizer.PreQrecover(orig_element);
+                        temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
+                        quant_count = quant_count+ batch_size;
+                        count +=batch_size;
+                    }
+                    for (; element != element_range->end(); ++element) {
+                        *element = quantizer.PreQrecover_seq(*element);
+                    }
                 }
-            }else{
-                size_t element_end = 0;
-                switch(batch_size){
-                    case 16:
-                        element_end = (element_size & ~0xF);
-                        break;
-                    case 8:
-                        element_end = (element_size & ~0x7);
-                        break;
-                    case 4:
-                        element_end = (element_size & ~0x3);
-                        break;
-                    default:
-                        element_end = (element_size & ~0x3);
-                        break;   
-                }
-                for (; element.get_local_index(0) < element_end; element += batch_size) {
-                    orig_element.copy_from(&(*element),stdx::element_aligned);
-                    auto temp_storage = quantizer.PreQrecover(orig_element);
-                    temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
-                    quant_count = quant_count+ batch_size;
-                }
-                for (; element != element_range->end(); element++) {
-                    *element = quantizer.PreQrecover_seq(*element);
+            }else{ // N == 2
+                auto row = element.get_dimensions()[0];
+                auto col = element.get_dimensions()[1];
+                if((element_size % batch_size == 0) && (col % batch_size == 0)){
+                    for (; element != element_range->end(); element += batch_size) {
+                        orig_element.copy_from(&(*element),stdx::element_aligned);
+                        auto temp_storage = quantizer.PreQrecover(orig_element);
+                        temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
+                        quant_count = quant_count+ batch_size;
+                    }
+                }else if(col > batch_size && col % batch_size !=0){
+                    while(element != element_range->end()){
+                        size_t count = 0;
+                        for(; count + batch_size < col; element+=batch_size){
+                            orig_element.copy_from(&(*element),stdx::element_aligned);
+                            auto temp_storage = quantizer.PreQrecover(orig_element);
+                            temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
+                            quant_count = quant_count+ batch_size;
+                            count +=batch_size;
+                        }
+                        for(; count < col; ++element){
+                            *element = quantizer.PreQrecover_seq(*element);
+                            count++;
+                        }
+                    }
+                }else{
+                    for (; element != element_range->end(); ++element) {*element = quantizer.PreQrecover_seq(*element);}
                 }
             }
         }
