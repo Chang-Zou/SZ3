@@ -1,5 +1,5 @@
-#ifndef SZ_COMPRESSOR_TYPE_TWO_HPP2
-#define SZ_COMPRESSOR_TYPE_TWO_HPP2
+#ifndef SZ_COMPRESSOR_DUAL_QUANT_HPP
+#define SZ_COMPRESSOR_DUAL_QUANT_HPP
 
 #include <cstring>
 #include <experimental/simd>// simd
@@ -27,7 +27,7 @@ namespace stdx {
 
 namespace SZ3 {
 /**
- * SZIterateCompressor2 glues together predictor, quantizer, encoder, and lossless modules to form the compressor.
+ * SZSIMDCompressor glues together predictor, quantizer, encoder, and lossless modules to form the compressor.
  * It only takes Predictor, not Decomposition.
  * It will automatically iterate through multidimensional data to apply the Predictor.
  *
@@ -39,9 +39,9 @@ namespace SZ3 {
  * @tparam Lossless  lossless module
  */
 template <class T, uint N, class Predictor, class Quantizer, class Encoder, class Lossless>
-class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
+class SZSIMDCompressor : public concepts::CompressorInterface<T> {
    public:
-    SZIterateCompressor2(const Config &conf, Predictor predictor, Quantizer quantizer, Encoder encoder,
+    SZSIMDCompressor(const Config &conf, Predictor predictor, Quantizer quantizer, Encoder encoder,
                          Lossless lossless)
         : fallback_predictor(LorenzoPredictor<T, N, 1>(conf.absErrorBound)),
           predictor(predictor),
@@ -59,11 +59,6 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
                       "must implement the encoder interface");
         static_assert(std::is_base_of<concepts::LosslessInterface, Lossless>::value,
                       "must implement the lossless interface");
-    }
-
-    void printsimd(auto const &a) {
-        for (std::size_t i{}; i != std::size(a); ++i) std::cout << a[i] << ' ';
-        std::cout << '\n';
     }
 
     size_t compress(const Config &conf, T *data, uchar *cmpData, size_t cmpCap) override {
@@ -98,7 +93,7 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
                 if(element_size % batch_size == 0){ // fits in SIMD register completely
                     for(; element != element_range->end(); element += batch_size) {
                         orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
+                        auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
                         temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
                         quant_count = quant_count + batch_size;
                     }
@@ -121,23 +116,23 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
                     }
                     for(; count < element_end; element += batch_size) {
                         orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
+                        auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
                         temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
                         quant_count = quant_count + batch_size;
                         count +=batch_size;
                     }
                     for(; element != element_range->end(); ++element) {
                         quant_inds[quant_count++] =
-                            quantizer.quantize_and_overwrite3(*element, predictor_withfallback->predict(element));
+                            quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
                     }
                 }
-            }else{ //N == 2
+            }else if (N == 2){ //N == 2
                 auto row = element.get_dimensions()[0];
                 auto col = element.get_dimensions()[1];
                 if((element_size % batch_size == 0) && (col % batch_size == 0)){ // fits in SIMD register completely
                     for(; element != element_range->end(); element += batch_size) {
                         orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
+                        auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
                         temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
                         quant_count = quant_count + batch_size;
                     }
@@ -146,21 +141,54 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
                         size_t count = 0;
                         for(; count + batch_size < col; element+=batch_size){
                             orig_element.copy_from(&(*element),stdx::element_aligned);
-                            auto temp_storage = quantizer.quantize_and_overwrite2(orig_element, predictor.simd_predict(element));
+                            auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
                             temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
                             quant_count = quant_count + batch_size;
                             count +=batch_size;
                         }
                         for(; count < col; ++element){
                             quant_inds[quant_count++] =
-                                quantizer.quantize_and_overwrite3(*element, predictor_withfallback->predict(element));
+                                quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
                             count++;
                         }
                     }
                 }else{
                     for(; element != element_range->end(); ++element) {
                         quant_inds[quant_count++] =
-                            quantizer.quantize_and_overwrite3(*element, predictor_withfallback->predict(element));
+                            quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
+                    }
+                }
+            }else{
+                auto depth = element.get_dimensions()[0];
+                auto row = element.get_dimensions()[1];
+                auto col = element.get_dimensions()[2];
+                if((element_size % batch_size == 0) && (col % batch_size == 0)){ // fits in SIMD register completely
+                    for(; element != element_range->end(); element += batch_size) {
+                        orig_element.copy_from(&(*element),stdx::element_aligned);
+                        auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
+                        temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                        quant_count = quant_count + batch_size;
+                    }
+                }else if (col > batch_size && col % batch_size !=0) {
+                    while(element != element_range->end()){
+                        size_t count = 0;
+                        for(; count + batch_size < col; element+=batch_size){
+                            orig_element.copy_from(&(*element),stdx::element_aligned);
+                            auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
+                            temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                            quant_count = quant_count + batch_size;
+                            count +=batch_size;
+                        }
+                        for(; count < col; ++element){
+                            quant_inds[quant_count++] =
+                                quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
+                            count++;
+                        }
+                    }
+                }else{
+                    for(; element != element_range->end(); ++element) {
+                        quant_inds[quant_count++] =
+                            quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
                     }
                 }
             }
@@ -247,7 +275,7 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
                 predictor_withfallback = &fallback_predictor;
             }
             for (auto element = element_range->begin(); element != element_range->end(); ++element) {
-                *element = quantizer.recoverPostQ(predictor_withfallback->predict(element), *(quant_inds_pos++));
+                *element = quantizer.recover_simd(predictor_withfallback->predict(element), *(quant_inds_pos++));
             }
         }
 
@@ -264,7 +292,7 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
                 if(element_size % batch_size == 0){
                     for (; element != element_range->end(); element += batch_size) {
                         orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.PreQrecover(orig_element);
+                        auto temp_storage = quantizer.recover_prequant(orig_element);
                         temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
                         quant_count = quant_count+ batch_size;
                     }
@@ -287,22 +315,22 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
                     }
                     for (; count < element_end; element += batch_size) {
                         orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.PreQrecover(orig_element);
+                        auto temp_storage = quantizer.recover_prequant(orig_element);
                         temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
                         quant_count = quant_count+ batch_size;
                         count +=batch_size;
                     }
                     for (; element != element_range->end(); ++element) {
-                        *element = quantizer.PreQrecover_seq(*element);
+                        *element = quantizer.recover_prequant_sequental(*element);
                     }
                 }
-            }else{ // N == 2
+            }else if (N == 2){ // N == 2
                 auto row = element.get_dimensions()[0];
                 auto col = element.get_dimensions()[1];
                 if((element_size % batch_size == 0) && (col % batch_size == 0)){
                     for (; element != element_range->end(); element += batch_size) {
                         orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.PreQrecover(orig_element);
+                        auto temp_storage = quantizer.recover_prequant(orig_element);
                         temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
                         quant_count = quant_count+ batch_size;
                     }
@@ -311,18 +339,47 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
                         size_t count = 0;
                         for(; count + batch_size < col; element+=batch_size){
                             orig_element.copy_from(&(*element),stdx::element_aligned);
-                            auto temp_storage = quantizer.PreQrecover(orig_element);
+                            auto temp_storage = quantizer.recover_prequant(orig_element);
                             temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
                             quant_count = quant_count+ batch_size;
                             count +=batch_size;
                         }
                         for(; count < col; ++element){
-                            *element = quantizer.PreQrecover_seq(*element);
+                            *element = quantizer.recover_prequant_sequental(*element);
                             count++;
                         }
                     }
                 }else{
-                    for (; element != element_range->end(); ++element) {*element = quantizer.PreQrecover_seq(*element);}
+                    for (; element != element_range->end(); ++element) {*element = quantizer.recover_prequant_sequental(*element);}
+                }
+            }else{
+                auto depth = element.get_dimensions()[0];
+                auto row = element.get_dimensions()[1];
+                auto col = element.get_dimensions()[2];
+                if((element_size % batch_size == 0) && (col % batch_size == 0)){
+                    for (; element != element_range->end(); element += batch_size) {
+                        orig_element.copy_from(&(*element),stdx::element_aligned);
+                        auto temp_storage = quantizer.recover_prequant(orig_element);
+                        temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
+                        quant_count = quant_count+ batch_size;
+                    }
+                }else if(col > batch_size && col % batch_size !=0){
+                    while(element != element_range->end()){
+                        size_t count = 0;
+                        for(; count + batch_size < col; element+=batch_size){
+                            orig_element.copy_from(&(*element),stdx::element_aligned);
+                            auto temp_storage = quantizer.recover_prequant(orig_element);
+                            temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
+                            quant_count = quant_count+ batch_size;
+                            count +=batch_size;
+                        }
+                        for(; count < col; ++element){
+                            *element = quantizer.recover_prequant_sequental(*element);
+                            count++;
+                        }
+                    }
+                }else{
+                    for (; element != element_range->end(); ++element) {*element = quantizer.recover_prequant_sequental(*element);}
                 }
             }
         }
@@ -345,9 +402,9 @@ class SZIterateCompressor2 : public concepts::CompressorInterface<T> {
 };
 
 template <class T, uint N, class Predictor, class Quantizer, class Encoder, class Lossless>
-std::shared_ptr<SZIterateCompressor2<T, N, Predictor, Quantizer, Encoder, Lossless>> make_compressor_sz_iterate2(
+std::shared_ptr<SZSIMDCompressor<T, N, Predictor, Quantizer, Encoder, Lossless>> make_compressor_sz_SIMD(
     const Config &conf, Predictor predictor, Quantizer quantizer, Encoder encoder, Lossless lossless) {
-    return std::make_shared<SZIterateCompressor2<T, N, Predictor, Quantizer, Encoder, Lossless>>(
+    return std::make_shared<SZSIMDCompressor<T, N, Predictor, Quantizer, Encoder, Lossless>>(
         conf, predictor, quantizer, encoder, lossless);
 }
 

@@ -128,13 +128,13 @@ inline void usage_sz2() {
 template <class T>
 void compress(char *inPath, char *cmpPath, SZ3::Config conf) {
     // Dynamically allocate aligned memory
-    const int alignment_byte = stdx::memory_alignment_v<stdx::native_simd<T>>;
-    constexpr size_t alignment = alignment_byte;
+    // const int alignment_byte = stdx::memory_alignment_v<stdx::native_simd<T>>;
+    // constexpr size_t alignment = alignment_byte;
 
-    size_t dataSize = sizeof(T) * conf.num;
+    // size_t dataSize = sizeof(T) * conf.num;
 
-    T *data = static_cast<T *>(std::aligned_alloc(alignment, dataSize));
-    // T *data = new T[conf.num];
+    // T *data = static_cast<T *>(std::aligned_alloc(alignment, dataSize));
+    T *data = new T[conf.num];
     SZ3::readfile<T>(inPath, conf.num, data);
     size_t bytesCap = 2 * conf.num * sizeof(T);
     auto bytes = new char[bytesCap];

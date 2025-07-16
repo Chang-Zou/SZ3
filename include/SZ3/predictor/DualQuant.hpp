@@ -4,6 +4,9 @@
 #include <cassert>
 #include <experimental/simd>
 #include <cmath> 
+#include <cfenv>
+#pragma STDC FENV_ACCESS ON
+
 
 #include "SZ3/def.hpp"
 #include "SZ3/predictor/Predictor.hpp"
@@ -222,21 +225,22 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         stdx::native_simd<TT> simd_vector;
         simd_vector.copy_from(&(*iter), stdx::element_aligned);
         stdx::native_simd<TT> multipler = static_cast<TT>(ebs_L4);
-        stdx::native_simd<TT> temp_vector = stdx::round(simd_vector * multipler);
+        std::fesetround(FE_TONEAREST);
+        stdx::native_simd<TT> temp_vector = stdx::nearbyint(simd_vector * multipler);
         temp_vector.copy_to(&(*iter), stdx::element_aligned);
     }
 
     template<class TT>
     inline void prequant_sequential(iterator &iter) {
-        *iter = std::round(*iter * ebs_L4);
+        std::fesetround(FE_TONEAREST);
+        *iter = std::nearbyint(*iter * ebs_L4);
     }
 
 
     template <uint NN = N, uint LL = L>
     inline typename std::enable_if<NN == 1 && LL == 1, stdx::native_simd<T>>::type do_simdpredict(const iterator &iter) const noexcept {
         stdx::native_simd<T> simd_vector;
-        int* out_of_bound = new int;
-        *out_of_bound = 0;
+        std::array<int, N> out_of_bound{};
         auto prev_1 = iter.prevaddr(out_of_bound,1);
         if(prev_1 == NULL){
             simd_vector = 0;
@@ -246,16 +250,39 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         return simd_vector;
     }
     
-    inline stdx::native_simd<T> addrloc(T* address, int *out_of_bound) const {
+    inline stdx::native_simd<T> addrloc(T* address, std::array<int, N>& out_of_bound) const {
         stdx::native_simd<T> temp_vector;
-        if(address == NULL){
-            temp_vector = 0;
-        }else if(* out_of_bound == 1){
-            temp_vector.copy_from(address, stdx::element_aligned);
-            temp_vector[0] = 0;
-            *out_of_bound = 0;
+        if (N == 3){
+            if(address == NULL){
+                temp_vector = 0;
+                out_of_bound.fill(0);
+            }else if(out_of_bound.front() == 1){ // height
+                temp_vector.copy_from(address, stdx::element_aligned);
+                temp_vector = 0;
+                out_of_bound.fill(0);
+            }else if(out_of_bound[1] == 1){ // row
+                temp_vector.copy_from(address, stdx::element_aligned);
+                temp_vector = 0;
+                out_of_bound.fill(0);
+            }else if(out_of_bound.back() == 1){ // col
+                temp_vector.copy_from(address, stdx::element_aligned);
+                temp_vector[0] = 0;
+                out_of_bound.fill(0);
+            }else{
+                temp_vector = 0;
+                temp_vector.copy_from(address, stdx::element_aligned);
+            }
         }else{
-            temp_vector.copy_from(address, stdx::element_aligned);
+            if(address == NULL){
+                temp_vector = 0;
+                out_of_bound.fill(0);
+            }else if(out_of_bound.back() == 1){
+                temp_vector.copy_from(address, stdx::element_aligned);
+                temp_vector[0] = 0;
+                out_of_bound.fill(0);
+            }else{
+                temp_vector.copy_from(address, stdx::element_aligned);
+            }
         }
         return temp_vector;
     }
@@ -265,8 +292,9 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         stdx::native_simd<T> simd_vector_01;
         stdx::native_simd<T> simd_vector_10;
         stdx::native_simd<T> simd_vector_11;
-        int* out_of_bound = new int;
-        *out_of_bound = 0;
+        std::array<int, N> out_of_bound{};
+        //int* out_of_bound = new int[N];
+        //std::fill(out_of_bound, out_of_bound + N, 0);
         
         T* prev_01 = iter.prevaddr(out_of_bound,0,1);
         simd_vector_01 = addrloc(prev_01,out_of_bound);
@@ -276,110 +304,38 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
 
         T* prev_11 = iter.prevaddr(out_of_bound,1,1);
         simd_vector_11 = addrloc(prev_11,out_of_bound);
-        // auto prev_01 = iter.prevaddr(out_of_bound,0,1);
-        // if(prev_01 == NULL){
-        //     simd_vector_01 = 0;
-        // }else if(*out_of_bound == 1){
-        //     simd_vector_01.copy_from(prev_01, stdx::element_aligned);
-        //     simd_vector_01[0] = 0;
-        //     *out_of_bound = 0;
-        // }else{
-        //     simd_vector_01.copy_from(prev_01, stdx::element_aligned);
-        // }
 
-        // auto prev_10 = iter.prevaddr(out_of_bound,1,0);
-        // if(prev_10 == NULL){
-        //     simd_vector_10 = 0;
-        // }else if (*out_of_bound == 1){
-        //     simd_vector_10.copy_from(prev_10, stdx::element_aligned);
-        //     simd_vector_10[0] = 0;
-        //     *out_of_bound = 0;
-        // }else{
-        //     simd_vector_10.copy_from(prev_10, stdx::element_aligned);
-        // }
-
-        // auto prev_11 = iter.prevaddr(out_of_bound,1,1);
-        // if(prev_11 == NULL){
-        //     simd_vector_11 = 0;
-        // }else if (*out_of_bound == 1){
-        //     simd_vector_11.copy_from(prev_11, stdx::element_aligned);
-        //     simd_vector_11[0] = 0;
-        //     *out_of_bound = 0;
-        // }else{
-        //     simd_vector_11.copy_from(prev_11, stdx::element_aligned);
-        // }
         return simd_vector_01 + simd_vector_10 - simd_vector_11;
     }
 
     template <uint NN = N, uint LL = L>
-    inline typename std::enable_if<NN == 3 && LL == 1, T>::type do_simdpredict(const iterator &iter) const noexcept {
-        stdx::native_simd<T> simd_vector_001;
-        stdx::native_simd<T> simd_vector_010;
-        stdx::native_simd<T> simd_vector_100;
-        stdx::native_simd<T> simd_vector_011;
-        stdx::native_simd<T> simd_vector_101;
-        stdx::native_simd<T> simd_vector_110;
-        stdx::native_simd<T> simd_vector_111;
-        int* out_of_bound = new int;
-        *out_of_bound = 0;
+    inline typename std::enable_if<NN == 3 && LL == 1, stdx::native_simd<T>>::type do_simdpredict(const iterator &iter) const noexcept {
+        stdx::native_simd<T> simd_vector_001, simd_vector_010, simd_vector_100, simd_vector_111;
+        stdx::native_simd<T> simd_vector_011, simd_vector_101, simd_vector_110;
+        std::array<int, N> out_of_bound{};
 
-        auto prev_001 = iter.prevaddr(out_of_bound,0,0,1);
-        if(prev_001 == NULL){
-            simd_vector_001 = 0;
-        }else if(*out_of_bound == 1){
-            simd_vector_001.copy_from(prev_001, stdx::element_aligned);
-            simd_vector_001[0] = 0;
-            *out_of_bound = 0;
-        }else{
-            simd_vector_001.copy_from(prev_001, stdx::element_aligned);
-        }
+        T* prev_001 = iter.prevaddr(out_of_bound,0,0,1);
+        simd_vector_001 = addrloc(prev_001,out_of_bound);
 
-        auto prev_010 = iter.prevaddr(out_of_bound,0,1,0);
-        if(prev_010 == NULL){
-            simd_vector_010 = 0;
-        }else if(*out_of_bound == 1){
-            simd_vector_010.copy_from(prev_010, stdx::element_aligned);
-            simd_vector_010[0] = 0;
-            *out_of_bound = 0;
-        }else{
-            simd_vector_010.copy_from(prev_010, stdx::element_aligned);
-        }
+        T* prev_010 = iter.prevaddr(out_of_bound,0,1,0);
+        simd_vector_010 = addrloc(prev_010,out_of_bound);
 
-        auto prev_100 = iter.prevaddr(out_of_bound,1,0,0);
-        if(prev_100 == NULL){
-            simd_vector_100 = 0;
-        }else if(*out_of_bound == 1){
-            simd_vector_100.copy_from(prev_100, stdx::element_aligned);
-            simd_vector_100[0] = 0;
-            *out_of_bound = 0;
-        }else{
-            simd_vector_100.copy_from(prev_100, stdx::element_aligned);
-        }
+        T* prev_100 = iter.prevaddr(out_of_bound,1,0,0);
+        simd_vector_100 = addrloc(prev_100,out_of_bound);
 
-        auto prev_011 = iter.prevaddr(out_of_bound,0,1,1);
-        if(prev_011 == NULL){
-            simd_vector_011 = 0;
-        }else if(*out_of_bound == 1){
-            simd_vector_011.copy_from(prev_011, stdx::element_aligned);
-            simd_vector_011[0] = 0;
-            *out_of_bound = 0;
-        }else{
-            simd_vector_100.copy_from(prev_011, stdx::element_aligned);
-        }
+        T* prev_011 = iter.prevaddr(out_of_bound,0,1,1);
+        simd_vector_011 = addrloc(prev_011,out_of_bound);
 
-        auto prev_101 = iter.prevaddr(out_of_bound,1,0,1);
-        if(prev_101 == NULL){
-            simd_vector_101 = 0;
-        }else if(*out_of_bound == 1){
-            simd_vector_101.copy_from(prev_101, stdx::element_aligned);
-            simd_vector_101[0] = 0;
-            *out_of_bound = 0;
-        }else{
-            simd_vector_101.copy_from(prev_101, stdx::element_aligned);
-        }
+        T* prev_101 = iter.prevaddr(out_of_bound,1,0,1);
+        simd_vector_101 = addrloc(prev_101,out_of_bound);
 
-        return iter.prev(0, 0, 1) + iter.prev(0, 1, 0) + iter.prev(1, 0, 0) - iter.prev(0, 1, 1) - iter.prev(1, 0, 1) -
-               iter.prev(1, 1, 0) + iter.prev(1, 1, 1);
+        T* prev_110 = iter.prevaddr(out_of_bound,1,1,0);
+        simd_vector_110 = addrloc(prev_110,out_of_bound);
+
+        T* prev_111 = iter.prevaddr(out_of_bound,1,1,1);
+        simd_vector_111 = addrloc(prev_111,out_of_bound);
+
+        return simd_vector_001 + simd_vector_010 + simd_vector_100 - simd_vector_011 - simd_vector_101 - simd_vector_110 + simd_vector_111;         
     }
 
     template <uint NN = N, uint LL = L>

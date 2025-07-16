@@ -146,7 +146,7 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
         }
 
         template <class... Args>
-        inline T* prevaddr(int* out_of_bound, Args &&...pos) const {
+        inline T* prevaddr(std::array<int, N>& out_of_bound, Args &&...pos) const {
             // TODO: check int type
             // TODO: change to offset map for efficiency
             static_assert(sizeof...(Args) == N, "Must have the same number of arguments");
@@ -156,7 +156,7 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
 
             for (int i = 0; i < N; i++) {
                 if (local_index[i] < args[i] && range->is_left_boundary(i)){
-                    *out_of_bound = 1;
+                    out_of_bound[i] = 1;
                 }
                 offset -= args[i] ? args[i] * range->global_dim_strides[i] : 0;
             }

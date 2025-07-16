@@ -34,12 +34,12 @@ constexpr const char *EB_STR[] = {"ABS", "REL", "PSNR", "NORM", "ABS_AND_REL", "
 constexpr EB EB_OPTIONS[] = {EB_ABS, EB_REL, EB_PSNR, EB_L2NORM, EB_ABS_AND_REL, EB_ABS_OR_REL};
 
 // When dualQuant is done then it will be a new algo?
-enum ALGO { ALGO_LORENZO_REG, ALGO_INTERP_LORENZO, ALGO_INTERP, ALGO_NOPRED, ALGO_LOSSLESS };
+enum ALGO { ALGO_LORENZO_REG, ALGO_INTERP_LORENZO, ALGO_INTERP, ALGO_NOPRED, ALGO_LOSSLESS, ALGO_DUALQUANT};
 constexpr const char *ALGO_STR[] = {"ALGO_LORENZO_REG", "ALGO_INTERP_LORENZO", "ALGO_INTERP",
-                                    "ALGO_NOPRED",      "ALGO_LOSSLESS"       };
+                                    "ALGO_NOPRED",      "ALGO_LOSSLESS",       "ALGO_DUALQUANT"};
 
 constexpr const ALGO ALGO_OPTIONS[] = {ALGO_LORENZO_REG, ALGO_INTERP_LORENZO, ALGO_INTERP,
-                                       ALGO_NOPRED,      ALGO_LOSSLESS};
+                                       ALGO_NOPRED,      ALGO_LOSSLESS,       ALGO_DUALQUANT};
 
 enum INTERP_ALGO { INTERP_ALGO_LINEAR, INTERP_ALGO_CUBIC };
 constexpr const char *INTERP_ALGO_STR[] = {"INTERP_ALGO_LINEAR", "INTERP_ALGO_CUBIC"};
@@ -106,6 +106,8 @@ class Config {
             cmprAlgo = ALGO_NOPRED;
         } else if (cmprAlgoStr == ALGO_STR[ALGO_LOSSLESS]) {
             cmprAlgo = ALGO_LOSSLESS;
+        } else if (cmprAlgoStr == ALGO_STR[ALGO_DUALQUANT]) {
+            cmprAlgo = ALGO_DUALQUANT;
         }
         auto ebModeStr = cfg.Get("GlobalSettings", "ErrorBoundMode", "");
         if (ebModeStr == EB_STR[EB_ABS]) {
@@ -286,6 +288,7 @@ class Config {
         printf("Lorenzo2ndOrder = %d\n", lorenzo2);
         printf("Regression = %d\n", regression);
         printf("Regression2ndOrder = %d\n", regression2);
+        printf("DualQuant = %d\n", dualquant); // added dualquant
         printf("OpenMP = %d\n", openmp);
         printf("DataType = %d\n", dataType);
         printf("Lossless = %d\n", lossless);

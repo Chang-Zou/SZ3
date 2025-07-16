@@ -89,11 +89,11 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     
 
     template <typename TP>
-    inline stdx::native_simd<TP> quantize_and_overwrite2(const stdx::native_simd<TP> data, const stdx::native_simd<TP> &pred) { 
+    inline stdx::native_simd<TP> quantize_and_overwrite_simd(const stdx::native_simd<TP> data, const stdx::native_simd<TP> &pred) { 
         stdx::native_simd<TP> diff = data - pred; 
         using maskv = stdx::native_simd_mask<TP>;
         maskv quantizable = (my_fabs(diff) < this->radius); 
-        auto quant_index = diff + radius;
+        auto quant_index = diff + this->radius;
         where(!quantizable,quant_index) *= 0;
         for(std::size_t i=0; i != data.size(); i++){
             if(!quantizable[i]){
@@ -104,10 +104,10 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     }
     
     // sequential for simd registers
-    inline int quantize_and_overwrite3(T &data, T pred) {
+    inline int quantize_and_overwrite_simd_sequential(T &data, T pred) {
         T diff = data - pred;
-        bool quantizable = fabs(diff) < radius;
-        int quant_index = static_cast<int>(diff + radius);
+        bool quantizable = fabs(diff) < this->radius;
+        int quant_index = static_cast<int>(diff + this->radius);
         if(!quantizable){
             unpred.push_back(data);
             quant_index = 0;
@@ -162,17 +162,8 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
         }
     }
 
-    // error bound double in results
-    // T simdrecover(T pred, int quant_index) {
-    //     if (quant_index) {
-    //         return recover_pred(pred, quant_index);
-    //     } else {
-    //         return recover_dualunpred();
-    //     }
-    // }
-    
     // post quant recover back to prequant state
-    inline T recoverPostQ(T pred, int quant_index) {
+    inline T recover_simd(T pred, int quant_index) {
         if(quant_index){
             return (pred + (quant_index - this->radius));
         }else{
@@ -182,13 +173,13 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
 
     // prequant recover back to orig data within errorbound
     template <typename TP>
-    inline stdx::native_simd<TP> PreQrecover(stdx::native_simd<TP> pred){
+    inline stdx::native_simd<TP> recover_prequant(stdx::native_simd<TP> pred){
         stdx::native_simd<TP> eb = static_cast<TP>(this->error_bound);
         return (2* eb * pred);
         //return (2 * this->error_bound * pred);
     }
 
-    inline T PreQrecover_seq(T pred){
+    inline T recover_prequant_sequental(T pred){
         return (2 * this->error_bound * pred);
     }
 

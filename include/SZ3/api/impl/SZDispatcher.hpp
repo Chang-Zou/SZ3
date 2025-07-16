@@ -4,6 +4,8 @@
 #include "SZ3/api/impl/SZAlgoInterp.hpp"
 #include "SZ3/api/impl/SZAlgoLorenzoReg.hpp"
 #include "SZ3/api/impl/SZAlgoNopred.hpp"
+// added SZAlgoDualQuant.hpp
+#include "SZ3/api/impl/SZAlgoDualQuant.hpp"
 #include "SZ3/utils/Config.hpp"
 #include "SZ3/utils/Statistic.hpp"
 
@@ -26,6 +28,8 @@ size_t SZ_compress_dispatcher(Config &conf, const T *data, uchar *cmpData, size_
                 cmpSize = SZ_compress_Interp_lorenzo<T, N>(conf, dataCopy.data(), cmpData, cmpCap);
             } else if (conf.cmprAlgo == ALGO_NOPRED) {
                 cmpSize = SZ_compress_nopred<T, N>(conf, dataCopy.data(), cmpData, cmpCap);
+            } else if (conf.cmprAlgo == ALGO_DUALQUANT){
+                cmpSize = SZ_compress_DualQuant<T, N>(conf, dataCopy.data(), cmpData, cmpCap);
             }
 
         } catch (std::length_error &e) {
@@ -83,7 +87,9 @@ void SZ_decompress_dispatcher(Config &conf, const uchar *cmpData, size_t cmpSize
         SZ_decompress_Interp<T, N>(conf, cmpData, cmpSize, decData);
     } else if (conf.cmprAlgo == ALGO_NOPRED) {
         SZ_decompress_nopred<T, N>(conf, cmpData, cmpSize, decData);
-    } else {
+    }else if (conf.cmprAlgo == ALGO_DUALQUANT) {
+        SZ_decompress_DualQuant<T, N>(conf, cmpData, cmpSize, decData);
+    }else {
         printf("SZ_decompress_dispatcher, Method not supported\n");
         exit(0);
     }
