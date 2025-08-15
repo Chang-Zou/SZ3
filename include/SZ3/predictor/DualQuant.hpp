@@ -7,6 +7,7 @@
 #include <cfenv>
 #pragma STDC FENV_ACCESS ON
 
+#include <iostream>
 
 #include "SZ3/def.hpp"
 #include "SZ3/predictor/Predictor.hpp"
@@ -172,6 +173,17 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     void save(uchar *&c) const override {
         c[0] = predictor_id;
         c += sizeof(uint8_t);
+
+        *reinterpret_cast<size_t *>(c) = unpred_from_rounding_value.size();
+        c += sizeof(size_t);
+        memcpy(c, unpred_from_rounding_value.data(), unpred_from_rounding_value.size() * sizeof(T));
+        c += unpred_from_rounding_value.size() * sizeof(T);
+
+        *reinterpret_cast<size_t *>(c) = unpred_from_rounding_index.size();
+        c += sizeof(size_t);
+        memcpy(c, unpred_from_rounding_index.data(), unpred_from_rounding_index.size() * sizeof(uint64_t));
+        c += unpred_from_rounding_index.size() * sizeof(uint64_t);
+
     }
 
     /*
@@ -185,6 +197,17 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     // }
     void load(const uchar *&c, size_t &remaining_length) override {
         c += sizeof(uint8_t);
+
+        size_t unpred_size = *reinterpret_cast<const size_t *>(c);
+        c += sizeof(size_t);
+        this->unpred_from_rounding_value = std::vector<T>(reinterpret_cast<const T *>(c), reinterpret_cast<const T *>(c) + unpred_size);
+        c += unpred_size * sizeof(T);
+
+        size_t unpred_size2 = *reinterpret_cast<const size_t *>(c);
+        c += sizeof(size_t);
+        this->unpred_from_rounding_index = std::vector<uint64_t>(reinterpret_cast<const uint64_t *>(c), reinterpret_cast<const uint64_t *>(c) + unpred_size2);
+        c += unpred_size2 * sizeof(uint64_t);
+
         remaining_length -= sizeof(uint8_t);
     }
 
@@ -207,6 +230,12 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     }
     
     //        void clear() {}
+    inline std::vector<T>& get_unpred_value(){
+        return unpred_from_rounding_value;
+    }
+    inline std::vector<uint64_t>& get_unpred_index(){
+        return unpred_from_rounding_index;
+    }
 
    protected:
     T noise = 0;
@@ -215,6 +244,10 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     // variables
     double eb;
     double ebs_L4;
+
+    std::vector<uint64_t> unpred_from_rounding_index;
+    std::vector<T> unpred_from_rounding_value;
+
     void printsimd(auto const &a) const {
         for (std::size_t i{}; i != std::size(a); ++i) std::cout << a[i] << ' ';
         std::cout << '\n';
@@ -227,13 +260,36 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         stdx::native_simd<TT> multipler = static_cast<TT>(ebs_L4);
         std::fesetround(FE_TONEAREST);
         stdx::native_simd<TT> temp_vector = stdx::nearbyint(simd_vector * multipler);
+        
+        stdx::native_simd<TT> eb_2 =  2 * static_cast<TT>(eb);
+        stdx::native_simd<TT> temp_vector2 = temp_vector * eb_2;
+        stdx::native_simd<TT> difference = simd_vector - temp_vector2;
+        for(std::size_t i=0; i != temp_vector.size(); i++){
+            if(std::fabs(difference[i]) > eb){
+                //printf("outof bound\n");
+                unpred_from_rounding_index.push_back(iter.get_offset() + i);
+                unpred_from_rounding_value.push_back(simd_vector[i]);
+               // std::cout << "index: " << (iter.get_offset() + i) << " realvalue: " << std::setprecision(10) << simd_vector[i] << " expectedvalue: " << temp_vector2[i] << "\n";
+            }
+        }
+        
         temp_vector.copy_to(&(*iter), stdx::element_aligned);
+
     }
 
     template<class TT>
     inline void prequant_sequential(iterator &iter) {
         std::fesetround(FE_TONEAREST);
-        *iter = std::nearbyint(*iter * ebs_L4);
+        auto temp_value = *iter * ebs_L4;
+        auto temp_value2 = temp_value * 2 *eb;
+        auto difference = *iter - temp_value2;
+        if(std::fabs(difference)> eb){
+            //printf("out of bound\n");
+            unpred_from_rounding_index.push_back(iter.get_offset());
+            unpred_from_rounding_value.push_back(*iter);
+            std::cout << "index: " << iter.get_offset() << " realvalue: " << *iter << " expectedvalue: " << temp_value2 << "\n";
+        }
+        *iter = std::nearbyint(temp_value);
     }
 
 

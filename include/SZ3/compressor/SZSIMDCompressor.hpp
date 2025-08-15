@@ -256,6 +256,10 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
         //            lossless.postdecompress_data(buffer);
 
         //            timer.start();
+
+        std::vector<T> unpred_value = predictor.get_unpred_value();
+        std::vector<uint64_t> unpred_index = predictor.get_unpred_index();
+
         int const *quant_inds_pos = static_cast<int const *>(quant_inds.data());
         // std::array<size_t, N> intra_block_dims;
         auto block_range = std::make_shared<multi_dimensional_range<T, N>>(decData, std::begin(global_dimensions),
@@ -382,6 +386,12 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
                     for (; element != element_range->end(); ++element) {*element = quantizer.recover_prequant_sequental(*element);}
                 }
             }
+        }
+        //std::cout << "reconstruction \n\n";
+        for(int i =0; i< unpred_value.size();i++){
+            uint64_t value = unpred_index[i];
+            //std::cout << "index: " << value << " realvalue: " << std::setprecision(10) <<  unpred_value[i] << " expectedvalue: " << decData[value] << "\n";
+            decData[value] = unpred_value[i];
         }
 
         predictor.postdecompress_data(block_range->begin());
