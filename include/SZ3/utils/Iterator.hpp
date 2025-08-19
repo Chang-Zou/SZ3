@@ -146,9 +146,8 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
         }
 
         template <class... Args>
-        inline T* prevaddr(std::array<int, N>& out_of_bound, Args &&...pos) const {
-            // TODO: check int type
-            // TODO: change to offset map for efficiency
+        inline T* prev_addr(std::array<int, N>& out_of_bound, Args &&...pos) const {
+            
             static_assert(sizeof...(Args) == N, "Must have the same number of arguments");
             auto offset = global_offset;
 

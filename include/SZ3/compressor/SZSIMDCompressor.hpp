@@ -2,7 +2,7 @@
 #define SZ_COMPRESSOR_DUAL_QUANT_HPP
 
 #include <cstring>
-#include <experimental/simd>// simd
+#include <experimental/simd>
 
 #include "SZ3/compressor/Compressor.hpp"
 #include "SZ3/def.hpp"
@@ -22,14 +22,12 @@ namespace stdx {
     using namespace std::experimental::__proposed;
 }
 
-//namespace stdx = vir::stdx; // works require c++20
-
 
 namespace SZ3 {
 /**
  * SZSIMDCompressor glues together predictor, quantizer, encoder, and lossless modules to form the compressor.
  * It only takes Predictor, not Decomposition.
- * It will automatically iterate through multidimensional data to apply the Predictor.
+ * It will uses the SIMD registers through multidimensinal data to aplly the Predictor.
  *
  * @tparam T original data type
  * @tparam N original data dimension
@@ -62,6 +60,7 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
     }
 
     size_t compress(const Config &conf, T *data, uchar *cmpData, size_t cmpCap) override {
+        Timer timer(true);
         std::vector<int> quant_inds(num_elements);
         auto block_range = std::make_shared<multi_dimensional_range<T, N>>(data, std::begin(global_dimensions),
                                                                            std::end(global_dimensions), block_size, 0);
@@ -71,15 +70,14 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
 
         predictor.precompress_data(block_range->begin());
         quantizer.precompress_data();
+
         size_t quant_count = 0;
         size_t batch_size = stdx::native_simd<T>::size();
         stdx::native_simd<T> orig_element;
 
-        // Pre-quant maybe we don't even need to do this block by block?
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
             element_range->update_block_range(block, block_size);
 
-            // This interface doesn't know the existance of dualquant.
             concepts::PredictorInterface<T, N> *predictor_withfallback = &predictor;
             if (!predictor.precompress_block(element_range)) {
                 predictor_withfallback = &fallback_predictor;
@@ -88,112 +86,38 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
 
             size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
             auto element = element_range->begin();
+            auto col = element.get_dimensions().back();
 
-            if(N == 1){
-                if(element_size % batch_size == 0){ // fits in SIMD register completely
-                    for(; element != element_range->end(); element += batch_size) {
-                        orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
-                        temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
-                        quant_count = quant_count + batch_size;
-                    }
-                }else{
-                    size_t element_end = 0;
-                    size_t count = 0;
-                    switch(batch_size){
-                        case 16:
-                            element_end = (element_size & ~0xF);
-                            break;
-                        case 8:
-                            element_end = (element_size & ~0x7);
-                            break;
-                        case 4:
-                            element_end = (element_size & ~0x3);
-                            break;
-                        default:
-                            element_end = (element_size & ~0x3);
-                            break;   
-                    }
-                    for(; count < element_end; element += batch_size) {
-                        orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
-                        temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
-                        quant_count = quant_count + batch_size;
-                        count +=batch_size;
-                    }
-                    for(; element != element_range->end(); ++element) {
-                        quant_inds[quant_count++] =
-                            quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
-                    }
+            if((element_size % batch_size == 0) && (col % batch_size == 0)){ // fits in SIMD register completely
+                for(; element != element_range->end(); element += batch_size) {
+                    orig_element.copy_from(&(*element),stdx::element_aligned);
+                    orig_element = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
+                    orig_element.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                    quant_count = quant_count + batch_size;
                 }
-            }else if (N == 2){ //N == 2
-                auto row = element.get_dimensions()[0];
-                auto col = element.get_dimensions()[1];
-                if((element_size % batch_size == 0) && (col % batch_size == 0)){ // fits in SIMD register completely
-                    for(; element != element_range->end(); element += batch_size) {
+            }else if (col > batch_size && col % batch_size != 0) {
+                while(element != element_range->end()){
+                    size_t count = 0;
+                    for(; count + batch_size < col; element += batch_size){
                         orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
-                        temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
+                        orig_element = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
+                        orig_element.copy_to(&quant_inds[quant_count],stdx::element_aligned);                       
                         quant_count = quant_count + batch_size;
+                        count += batch_size;
                     }
-                }else if (col > batch_size && col % batch_size !=0) {
-                    while(element != element_range->end()){
-                        size_t count = 0;
-                        for(; count + batch_size < col; element+=batch_size){
-                            orig_element.copy_from(&(*element),stdx::element_aligned);
-                            auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
-                            temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
-                            quant_count = quant_count + batch_size;
-                            count +=batch_size;
-                        }
-                        for(; count < col; ++element){
-                            quant_inds[quant_count++] =
-                                quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
-                            count++;
-                        }
-                    }
-                }else{
-                    for(; element != element_range->end(); ++element) {
+                    for(; count < col; ++element){
                         quant_inds[quant_count++] =
                             quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
+                        count++;
                     }
                 }
             }else{
-                auto depth = element.get_dimensions()[0];
-                auto row = element.get_dimensions()[1];
-                auto col = element.get_dimensions()[2];
-                if((element_size % batch_size == 0) && (col % batch_size == 0)){ // fits in SIMD register completely
-                    for(; element != element_range->end(); element += batch_size) {
-                        orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
-                        temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
-                        quant_count = quant_count + batch_size;
-                    }
-                }else if (col > batch_size && col % batch_size !=0) {
-                    while(element != element_range->end()){
-                        size_t count = 0;
-                        for(; count + batch_size < col; element+=batch_size){
-                            orig_element.copy_from(&(*element),stdx::element_aligned);
-                            auto temp_storage = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
-                            temp_storage.copy_to(&quant_inds[quant_count],stdx::element_aligned);
-                            quant_count = quant_count + batch_size;
-                            count +=batch_size;
-                        }
-                        for(; count < col; ++element){
-                            quant_inds[quant_count++] =
-                                quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
-                            count++;
-                        }
-                    }
-                }else{
-                    for(; element != element_range->end(); ++element) {
-                        quant_inds[quant_count++] =
-                            quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
-                    }
+                for(; element != element_range->end(); ++element) {
+                    quant_inds[quant_count++] =
+                        quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
                 }
-            }
+            }       
         }
-
 
         predictor.postcompress_data(block_range->begin());
         quantizer.postcompress_data();
@@ -201,6 +125,7 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
         if (quantizer.get_out_range().first != 0) {
             throw std::runtime_error("The output range of the quantizer must start from 0 for this compressor");
         }
+        timer.stop("Predictor&Quantization");
         encoder.preprocess_encode(quant_inds, quantizer.get_out_range().second);
 
         size_t bufferSize = 1.2 * (quantizer.size_est() + encoder.size_est() + sizeof(T) * quant_inds.size());
@@ -256,12 +181,13 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
         //            lossless.postdecompress_data(buffer);
 
         //            timer.start();
-
+        Timer timer;
+        timer.start();
         std::vector<T> unpred_value = predictor.get_unpred_value();
         std::vector<uint64_t> unpred_index = predictor.get_unpred_index();
 
         int const *quant_inds_pos = static_cast<int const *>(quant_inds.data());
-        // std::array<size_t, N> intra_block_dims;
+      
         auto block_range = std::make_shared<multi_dimensional_range<T, N>>(decData, std::begin(global_dimensions),
                                                                            std::end(global_dimensions), block_size, 0);
 
@@ -291,113 +217,44 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
             element_range->update_block_range(block, block_size);
             auto element = element_range->begin();
             size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
+            auto col = element.get_dimensions().back();
 
-            if(N == 1){
-                if(element_size % batch_size == 0){
+            if((element_size % batch_size == 0) && (col % batch_size == 0)){
+                for (; element != element_range->end(); element += batch_size) {
+                    orig_element.copy_from(&(*element),stdx::element_aligned);
+                    orig_element = quantizer.recover_prequant(orig_element);
+                    orig_element.copy_to(&(*element += quant_count), stdx::element_aligned);
+                    quant_count = quant_count + batch_size;
+                }
+            }else if(col > batch_size && col % batch_size !=0){
+                while(element != element_range->end()){
+                    size_t count = 0;
                     for (; element != element_range->end(); element += batch_size) {
                         orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.recover_prequant(orig_element);
-                        temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
-                        quant_count = quant_count+ batch_size;
-                    }
-                }else{
-                    size_t element_end = 0;
-                    size_t count = 0;
-                    switch(batch_size){
-                        case 16:
-                            element_end = (element_size & ~0xF);
-                            break;
-                        case 8:
-                            element_end = (element_size & ~0x7);
-                            break;
-                        case 4:
-                            element_end = (element_size & ~0x3);
-                            break;
-                        default:
-                            element_end = (element_size & ~0x3);
-                            break;   
-                    }
-                    for (; count < element_end; element += batch_size) {
-                        orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.recover_prequant(orig_element);
-                        temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
-                        quant_count = quant_count+ batch_size;
+                        orig_element = quantizer.recover_prequant(orig_element);
+                        orig_element.copy_to(&(*element += quant_count), stdx::element_aligned);
+                        quant_count = quant_count + batch_size;
                         count +=batch_size;
                     }
-                    for (; element != element_range->end(); ++element) {
+                    for(; count < col; ++element){
                         *element = quantizer.recover_prequant_sequental(*element);
+                        count++;
                     }
-                }
-            }else if (N == 2){ // N == 2
-                auto row = element.get_dimensions()[0];
-                auto col = element.get_dimensions()[1];
-                if((element_size % batch_size == 0) && (col % batch_size == 0)){
-                    for (; element != element_range->end(); element += batch_size) {
-                        orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.recover_prequant(orig_element);
-                        temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
-                        quant_count = quant_count+ batch_size;
-                    }
-                }else if(col > batch_size && col % batch_size !=0){
-                    while(element != element_range->end()){
-                        size_t count = 0;
-                        for(; count + batch_size < col; element+=batch_size){
-                            orig_element.copy_from(&(*element),stdx::element_aligned);
-                            auto temp_storage = quantizer.recover_prequant(orig_element);
-                            temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
-                            quant_count = quant_count+ batch_size;
-                            count +=batch_size;
-                        }
-                        for(; count < col; ++element){
-                            *element = quantizer.recover_prequant_sequental(*element);
-                            count++;
-                        }
-                    }
-                }else{
-                    for (; element != element_range->end(); ++element) {*element = quantizer.recover_prequant_sequental(*element);}
                 }
             }else{
-                auto depth = element.get_dimensions()[0];
-                auto row = element.get_dimensions()[1];
-                auto col = element.get_dimensions()[2];
-                if((element_size % batch_size == 0) && (col % batch_size == 0)){
-                    for (; element != element_range->end(); element += batch_size) {
-                        orig_element.copy_from(&(*element),stdx::element_aligned);
-                        auto temp_storage = quantizer.recover_prequant(orig_element);
-                        temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
-                        quant_count = quant_count+ batch_size;
-                    }
-                }else if(col > batch_size && col % batch_size !=0){
-                    while(element != element_range->end()){
-                        size_t count = 0;
-                        for(; count + batch_size < col; element+=batch_size){
-                            orig_element.copy_from(&(*element),stdx::element_aligned);
-                            auto temp_storage = quantizer.recover_prequant(orig_element);
-                            temp_storage.copy_to(&(*element += quant_count), stdx::element_aligned);
-                            quant_count = quant_count+ batch_size;
-                            count +=batch_size;
-                        }
-                        for(; count < col; ++element){
-                            *element = quantizer.recover_prequant_sequental(*element);
-                            count++;
-                        }
-                    }
-                }else{
-                    for (; element != element_range->end(); ++element) {*element = quantizer.recover_prequant_sequental(*element);}
-                }
-            }
+                for (; element != element_range->end(); ++element) {*element = quantizer.recover_prequant_sequental(*element);}
+            } 
         }
-        //std::cout << "reconstruction \n\n";
-        for(int i =0; i< unpred_value.size();i++){
+
+        for(int i = 0; i < unpred_value.size(); i++){
             uint64_t value = unpred_index[i];
-            //std::cout << "index: " << value << " realvalue: " << std::setprecision(10) <<  unpred_value[i] << " expectedvalue: " << decData[value] << "\n";
-            decData[value] = unpred_value[i];
+            decData[value] = unpred_value[i]; 
         }
 
         predictor.postdecompress_data(block_range->begin());
         quantizer.postdecompress_data();
+        timer.stop("Prediction & Recover");
         return decData;
-        //            timer.stop("Prediction & Recover");
     }
 
    private:

@@ -4,10 +4,10 @@
 #include <cmath>
 #include <memory>
 
-#include "SZ3/compressor/SZSIMDCompressor.hpp" // added SZSIMDcompressor
+#include "SZ3/compressor/SZSIMDCompressor.hpp" 
 #include "SZ3/def.hpp"
 #include "SZ3/lossless/Lossless_zstd.hpp"
-#include "SZ3/predictor/DualQuant.hpp"  // added dualquant
+#include "SZ3/predictor/DualQuantPredictor.hpp" 
 #include "SZ3/predictor/LorenzoPredictor.hpp"
 #include "SZ3/quantizer/LinearQuantizer.hpp"
 #include "SZ3/utils/Config.hpp"
@@ -35,22 +35,17 @@ size_t SZ_compress_DualQuant(Config &conf, T *data, uchar *cmpData, size_t cmpCa
     calAbsErrorBound(conf, data);
 
     auto quantizer = LinearQuantizer<T>(conf.absErrorBound, conf.quantbinCnt / 2);
-    auto sz =
-        make_compressor_dualquant<T, N>(conf, quantizer, HuffmanEncoder<int>(), Lossless_zstd());
+    auto sz = make_compressor_dualquant<T, N>(conf, quantizer, HuffmanEncoder<int>(), Lossless_zstd());
     return sz->compress(conf, data, cmpData, cmpCap);
-    //        return cmpData;
 }
 
 template <class T, uint N>
 void SZ_decompress_DualQuant(const Config &conf, const uchar *cmpData, size_t cmpSize, T *decData) {
     assert(conf.cmprAlgo == ALGO_DUALQUANT);
-
     auto cmpDataPos = cmpData;
     LinearQuantizer<T> quantizer;
-    auto sz =
-            make_compressor_dualquant<T, N>(conf, quantizer, HuffmanEncoder<int>(), Lossless_zstd());
-        sz->decompress(conf, cmpDataPos, cmpSize, decData);
-        return;
-    }
+    auto sz = make_compressor_dualquant<T, N>(conf, quantizer, HuffmanEncoder<int>(), Lossless_zstd());
+    sz->decompress(conf, cmpDataPos, cmpSize, decData);
+}
 }  // namespace SZ3
 #endif

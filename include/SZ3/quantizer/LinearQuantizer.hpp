@@ -68,10 +68,6 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
             return 0;
         }
     }
-    void printsimd(auto const &a) {
-        for (std::size_t i{}; i != std::size(a); ++i) std::cout << a[i] << ' ';
-        std::cout << '\n';
-    }
   
     /*
     fabs wrapper function
@@ -83,7 +79,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
         if constexpr (std::is_same_v<valueType, float> || std::is_same_v<valueType, double>){
             return stdx::fabs(value);
         }else{
-            return 0;
+            return stdx::abs(value);
         }
     }
     
@@ -176,7 +172,6 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     inline stdx::native_simd<TP> recover_prequant(stdx::native_simd<TP> pred){
         stdx::native_simd<TP> eb = static_cast<TP>(this->error_bound);
         return (2* eb * pred);
-        //return (2 * this->error_bound * pred);
     }
 
     inline T recover_prequant_sequental(T pred){
@@ -224,11 +219,6 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     void print() override {
         printf("[LinearQuantizer] error_bound = %.8G, radius = %d, unpred = %lu\n", error_bound, radius, unpred.size());
     }
-
-    //        void clear() {
-    //            unpred.clear();
-    //            index = 0;
-    //        }
 
    private:
     std::vector<T> unpred;

@@ -34,7 +34,7 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     DualQuantPredictor(double eb) {
         this->noise = 0;
         this->eb = eb;
-        ebs_L4 = 1 / (2 * eb);
+        ebs_x2r = 1 / (2 * eb);
         if (L == 1) {
             if (N == 1) {
                 this->noise = 0.5 * eb;
@@ -65,97 +65,31 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     void postdecompress_data(const iterator &) const override {}
 
     bool precompress_block(const std::shared_ptr<Range> &element_range) override {
-        if(N == 1){
-            size_t batch_size = stdx::native_simd<T>::size();
-            size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
-            auto element = element_range->begin();
-            auto element2 = element.get_dimensions();
+        
+        size_t batch_size = stdx::native_simd<T>::size();
+        size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
+        auto element = element_range->begin();
+        auto col = element.get_dimensions().back();
 
-            if(element_size % batch_size == 0){
-                for(; element != element_range->end(); element += batch_size) {
-                    prequant<float>(element);
-                }
-            }else{
-                size_t element_end = 0;
+        if((element_size % batch_size == 0) && (col % batch_size == 0)){ // case 1 & 2
+            for(; element != element_range->end(); element += batch_size) {
+                prequant(element);
+            }
+        }else if (col > batch_size && col % batch_size != 0){ // case 3
+            while(element != element_range->end()){
+
                 size_t count = 0;
-                switch(batch_size){
-                    case 16:
-                        element_end = (element_size & ~0xF);
-                        break;
-                    case 8:
-                        element_end = (element_size & ~0x7);
-                        break;
-                    case 4:
-                        element_end = (element_size & ~0x3);
-                        break;
-                    default:
-                        element_end = (element_size & ~0x3);
-                        break;   
-                }
-                for(; count < element_end; element += batch_size) { 
-                    prequant<float>(element);
+                for(; count + batch_size < col; element+=batch_size){
+                    prequant(element);
                     count +=batch_size;
                 }
-                for(; element != element_range->end(); ++element) {
-                    prequant_sequential<float>(element);
+                for(; count < col; ++element){
+                    prequant_sequential(element);
+                    count++;
                 }
             }
-            return true;
-        }else if (N == 2){ // N == 2
-            size_t batch_size = stdx::native_simd<T>::size();
-            size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
-            auto element = element_range->begin();
-            auto row = element.get_dimensions()[0];
-            auto col = element.get_dimensions()[1];
-
-            if((element_size % batch_size == 0) && (col % batch_size == 0)){ // case 1 & 2
-                for(; element != element_range->end(); element += batch_size) {
-                    prequant<float>(element);
-                }
-            }else if (col > batch_size && col % batch_size != 0){ // case 3
-                while(element != element_range->end()){
-                    size_t count = 0;
-                    for(; count + batch_size < col; element+=batch_size){
-                        prequant<float>(element);
-                        count +=batch_size;
-                    }
-                    for(; count < col; ++element){
-                        prequant_sequential<float>(element);
-                        count++;
-                    }
-                }
-            }else{
-                for(; element != element_range->end(); ++element) {prequant_sequential<float>(element);}
-            }
-            return true;
-        }else{ // N == 3
-            size_t batch_size = stdx::native_simd<T>::size();
-            size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
-            auto element = element_range->begin();
-            auto depth = element.get_dimensions()[0];
-            auto row = element.get_dimensions()[1];
-            auto col = element.get_dimensions()[2];
-
-            if((element_size % batch_size == 0) && (col % batch_size == 0)){ // case 1 & 2
-                for(; element != element_range->end(); element += batch_size) {
-                    prequant<float>(element);
-                }
-            }else if (col > batch_size && col % batch_size != 0){ // case 3
-                while(element != element_range->end()){
-                    size_t count = 0;
-                    for(; count + batch_size < col; element+=batch_size){
-                        prequant<float>(element);
-                        count +=batch_size;
-                    }
-                    for(; count < col; ++element){
-                        prequant_sequential<float>(element);
-                        count++;
-                    }
-                }
-            }else{
-                for(; element != element_range->end(); ++element) {prequant_sequential<float>(element);}
-            }
-            return true;
+        }else{
+            for(; element != element_range->end(); ++element) {prequant_sequential(element);}
         }
         return true;
     }
@@ -167,9 +101,6 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     /*
      * save doesn't need to store anything except the id
      */
-    // std::string save() const {
-    //   return std::string(1, predictor_id);
-    // }
     void save(uchar *&c) const override {
         c[0] = predictor_id;
         c += sizeof(uint8_t);
@@ -229,7 +160,6 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         return do_simdpredict(iter);
     }
     
-    //        void clear() {}
     inline std::vector<T>& get_unpred_value(){
         return unpred_from_rounding_value;
     }
@@ -243,61 +173,83 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
    private:
     // variables
     double eb;
-    double ebs_L4;
+    double ebs_x2r;
 
     std::vector<uint64_t> unpred_from_rounding_index;
     std::vector<T> unpred_from_rounding_value;
-
-    void printsimd(auto const &a) const {
-        for (std::size_t i{}; i != std::size(a); ++i) std::cout << a[i] << ' ';
-        std::cout << '\n';
-    }
-  
-    template<class TT>
+    
+    #pragma GCC push_options
+    #pragma GCC optimize ("O1")
     inline void prequant(iterator &iter) {
-        stdx::native_simd<TT> simd_vector;
+        stdx::native_simd<T> simd_vector;
         simd_vector.copy_from(&(*iter), stdx::element_aligned);
-        stdx::native_simd<TT> multipler = static_cast<TT>(ebs_L4);
+        stdx::native_simd<T> multipler = static_cast<T>(ebs_x2r);
         std::fesetround(FE_TONEAREST);
-        stdx::native_simd<TT> temp_vector = stdx::nearbyint(simd_vector * multipler);
+        stdx::native_simd<T> temp_vector = 0;
+        if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>){
+            temp_vector = stdx::nearbyint(simd_vector * multipler);
+        }else{
+            temp_vector = simd_vector * multipler;
+        }
+        stdx::native_simd<T> eb_x2 =  2 * static_cast<T>(eb);
+        stdx::native_simd<T> temp_vector_2 = temp_vector * eb_x2;
+        stdx::native_simd<T> difference = simd_vector - temp_vector_2;
         
-        stdx::native_simd<TT> eb_2 =  2 * static_cast<TT>(eb);
-        stdx::native_simd<TT> temp_vector2 = temp_vector * eb_2;
-        stdx::native_simd<TT> difference = simd_vector - temp_vector2;
-        for(std::size_t i=0; i != temp_vector.size(); i++){
-            if(std::fabs(difference[i]) > eb){
-                //printf("outof bound\n");
-                unpred_from_rounding_index.push_back(iter.get_offset() + i);
-                unpred_from_rounding_value.push_back(simd_vector[i]);
-               // std::cout << "index: " << (iter.get_offset() + i) << " realvalue: " << std::setprecision(10) << simd_vector[i] << " expectedvalue: " << temp_vector2[i] << "\n";
+ 
+        for(std::size_t i = 0; i < simd_vector.size(); ++i){
+            if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>){
+                if(std::fabs(difference[i]) > eb){
+                    unpred_from_rounding_index.push_back(iter.get_offset() + i);
+                    unpred_from_rounding_value.push_back(simd_vector[i]);
+                }
+            }else{
+                if(std::abs(difference[i]) > eb){
+                    unpred_from_rounding_index.push_back(iter.get_offset() + i);
+                    unpred_from_rounding_value.push_back(simd_vector[i]);
+                }
             }
         }
-        
         temp_vector.copy_to(&(*iter), stdx::element_aligned);
-
     }
+    #pragma GCC pop_options
 
-    template<class TT>
     inline void prequant_sequential(iterator &iter) {
         std::fesetround(FE_TONEAREST);
-        auto temp_value = *iter * ebs_L4;
-        auto temp_value2 = temp_value * 2 *eb;
-        auto difference = *iter - temp_value2;
-        if(std::fabs(difference)> eb){
-            //printf("out of bound\n");
+        auto temp_value = *iter * ebs_x2r;
+        auto temp_value_2 = temp_value * 2 *eb;
+        auto difference = *iter - temp_value_2;
+        if(std::fabs(difference) > eb){
             unpred_from_rounding_index.push_back(iter.get_offset());
             unpred_from_rounding_value.push_back(*iter);
-            std::cout << "index: " << iter.get_offset() << " realvalue: " << *iter << " expectedvalue: " << temp_value2 << "\n";
         }
         *iter = std::nearbyint(temp_value);
     }
 
 
+    inline stdx::native_simd<T> addr_loc(T* address, std::array<int, N>& out_of_bound) const {
+        stdx::native_simd<T> temp_vector;
+        if(address == NULL){
+            temp_vector = 0;
+            out_of_bound.fill(0);
+        }else if(std::any_of(out_of_bound.begin(), out_of_bound.end() - 1, [](auto v) { return v != 0; })) {
+            temp_vector = 0;
+            out_of_bound.fill(0);
+        }else if(out_of_bound.back() == 1){
+            temp_vector.copy_from(address, stdx::element_aligned);
+            temp_vector[0] = 0;
+            out_of_bound.fill(0);
+        }else{
+            temp_vector.copy_from(address, stdx::element_aligned);
+        }
+        return temp_vector;
+    }
+
     template <uint NN = N, uint LL = L>
     inline typename std::enable_if<NN == 1 && LL == 1, stdx::native_simd<T>>::type do_simdpredict(const iterator &iter) const noexcept {
         stdx::native_simd<T> simd_vector;
         std::array<int, N> out_of_bound{};
-        auto prev_1 = iter.prevaddr(out_of_bound,1);
+
+        auto prev_1 = iter.prev_addr(out_of_bound,1);
         if(prev_1 == NULL){
             simd_vector = 0;
         }else{
@@ -306,60 +258,21 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         return simd_vector;
     }
     
-    inline stdx::native_simd<T> addrloc(T* address, std::array<int, N>& out_of_bound) const {
-        stdx::native_simd<T> temp_vector;
-        if (N == 3){
-            if(address == NULL){
-                temp_vector = 0;
-                out_of_bound.fill(0);
-            }else if(out_of_bound.front() == 1){ // height
-                temp_vector.copy_from(address, stdx::element_aligned);
-                temp_vector = 0;
-                out_of_bound.fill(0);
-            }else if(out_of_bound[1] == 1){ // row
-                temp_vector.copy_from(address, stdx::element_aligned);
-                temp_vector = 0;
-                out_of_bound.fill(0);
-            }else if(out_of_bound.back() == 1){ // col
-                temp_vector.copy_from(address, stdx::element_aligned);
-                temp_vector[0] = 0;
-                out_of_bound.fill(0);
-            }else{
-                temp_vector = 0;
-                temp_vector.copy_from(address, stdx::element_aligned);
-            }
-        }else{
-            if(address == NULL){
-                temp_vector = 0;
-                out_of_bound.fill(0);
-            }else if(out_of_bound.back() == 1){
-                temp_vector.copy_from(address, stdx::element_aligned);
-                temp_vector[0] = 0;
-                out_of_bound.fill(0);
-            }else{
-                temp_vector.copy_from(address, stdx::element_aligned);
-            }
-        }
-        return temp_vector;
-    }
-
     template <uint NN = N, uint LL = L>
     inline typename std::enable_if<NN == 2 && LL == 1, stdx::native_simd<T>>::type do_simdpredict(const iterator &iter) const noexcept {
         stdx::native_simd<T> simd_vector_01;
         stdx::native_simd<T> simd_vector_10;
         stdx::native_simd<T> simd_vector_11;
         std::array<int, N> out_of_bound{};
-        //int* out_of_bound = new int[N];
-        //std::fill(out_of_bound, out_of_bound + N, 0);
         
-        T* prev_01 = iter.prevaddr(out_of_bound,0,1);
-        simd_vector_01 = addrloc(prev_01,out_of_bound);
+        T* prev_01 = iter.prev_addr(out_of_bound,0,1);
+        simd_vector_01 = addr_loc(prev_01,out_of_bound);
 
-        T* prev_10 = iter.prevaddr(out_of_bound,1,0);
-        simd_vector_10 = addrloc(prev_10,out_of_bound);
+        T* prev_10 = iter.prev_addr(out_of_bound,1,0);
+        simd_vector_10 = addr_loc(prev_10,out_of_bound);
 
-        T* prev_11 = iter.prevaddr(out_of_bound,1,1);
-        simd_vector_11 = addrloc(prev_11,out_of_bound);
+        T* prev_11 = iter.prev_addr(out_of_bound,1,1);
+        simd_vector_11 = addr_loc(prev_11,out_of_bound);
 
         return simd_vector_01 + simd_vector_10 - simd_vector_11;
     }
@@ -370,37 +283,81 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         stdx::native_simd<T> simd_vector_011, simd_vector_101, simd_vector_110;
         std::array<int, N> out_of_bound{};
 
-        T* prev_001 = iter.prevaddr(out_of_bound,0,0,1);
-        simd_vector_001 = addrloc(prev_001,out_of_bound);
+        T* prev_001 = iter.prev_addr(out_of_bound,0,0,1); 
+        simd_vector_001 = addr_loc(prev_001,out_of_bound);
 
-        T* prev_010 = iter.prevaddr(out_of_bound,0,1,0);
-        simd_vector_010 = addrloc(prev_010,out_of_bound);
+        T* prev_010 = iter.prev_addr(out_of_bound,0,1,0);
+        simd_vector_010 = addr_loc(prev_010,out_of_bound);
 
-        T* prev_100 = iter.prevaddr(out_of_bound,1,0,0);
-        simd_vector_100 = addrloc(prev_100,out_of_bound);
+        T* prev_100 = iter.prev_addr(out_of_bound,1,0,0);
+        simd_vector_100 = addr_loc(prev_100,out_of_bound);
 
-        T* prev_011 = iter.prevaddr(out_of_bound,0,1,1);
-        simd_vector_011 = addrloc(prev_011,out_of_bound);
+        T* prev_011 = iter.prev_addr(out_of_bound,0,1,1);
+        simd_vector_011 = addr_loc(prev_011,out_of_bound);
 
-        T* prev_101 = iter.prevaddr(out_of_bound,1,0,1);
-        simd_vector_101 = addrloc(prev_101,out_of_bound);
+        T* prev_101 = iter.prev_addr(out_of_bound,1,0,1);
+        simd_vector_101 = addr_loc(prev_101,out_of_bound);
 
-        T* prev_110 = iter.prevaddr(out_of_bound,1,1,0);
-        simd_vector_110 = addrloc(prev_110,out_of_bound);
+        T* prev_110 = iter.prev_addr(out_of_bound,1,1,0);
+        simd_vector_110 = addr_loc(prev_110,out_of_bound);
 
-        T* prev_111 = iter.prevaddr(out_of_bound,1,1,1);
-        simd_vector_111 = addrloc(prev_111,out_of_bound);
+        T* prev_111 = iter.prev_addr(out_of_bound,1,1,1);
+        simd_vector_111 = addr_loc(prev_111,out_of_bound);
 
-        return simd_vector_001 + simd_vector_010 + simd_vector_100 - simd_vector_011 - simd_vector_101 - simd_vector_110 + simd_vector_111;         
+        return simd_vector_001 + simd_vector_010 + simd_vector_100 - simd_vector_011 - 
+               simd_vector_101 - simd_vector_110 + simd_vector_111;         
     }
 
     template <uint NN = N, uint LL = L>
-    inline typename std::enable_if<NN == 4, T>::type do_simdpredict(const iterator &iter) const noexcept {
-        printf("here 4\n");
-        return iter.prev(0, 0, 0, 1) + iter.prev(0, 0, 1, 0) - iter.prev(0, 0, 1, 1) + iter.prev(0, 1, 0, 0) -
-               iter.prev(0, 1, 0, 1) - iter.prev(0, 1, 1, 0) + iter.prev(0, 1, 1, 1) + iter.prev(1, 0, 0, 0) -
-               iter.prev(1, 0, 0, 1) - iter.prev(1, 0, 1, 0) + iter.prev(1, 0, 1, 1) - iter.prev(1, 1, 0, 0) +
-               iter.prev(1, 1, 0, 1) + iter.prev(1, 1, 1, 0) - iter.prev(1, 1, 1, 1);
+    inline typename std::enable_if<NN == 4, stdx::native_simd<T>>::type do_simdpredict(const iterator &iter) const noexcept {
+        stdx::native_simd<T> simd_vector_0001, simd_vector_0010, simd_vector_0011, simd_vector_0100;
+        stdx::native_simd<T> simd_vector_0101, simd_vector_0110, simd_vector_0111, simd_vector_1000;
+        stdx::native_simd<T> simd_vector_1001, simd_vector_1010, simd_vector_1011, simd_vector_1100;
+        stdx::native_simd<T> simd_vector_1101, simd_vector_1110, simd_vector_1111;
+        std::array<int, N> out_of_bound{};
+
+        // row 1
+        T* prev_0001 = iter.prev_addr(out_of_bound,0,0,0,1);
+        simd_vector_0001 = addr_loc(prev_0001,out_of_bound);
+        T* prev_0010 = iter.prev_addr(out_of_bound,0,0,1,0);
+        simd_vector_0010 = addr_loc(prev_0010,out_of_bound);          
+        T* prev_0011 = iter.prev_addr(out_of_bound,0,0,1,1);
+        simd_vector_0011 = addr_loc(prev_0011,out_of_bound);
+        T* prev_0100 = iter.prev_addr(out_of_bound,0,1,0,0);
+        simd_vector_0100 = addr_loc(prev_0100,out_of_bound);
+        
+        // row 2
+        T* prev_0101 = iter.prev_addr(out_of_bound,0,1,0,1);
+        simd_vector_0101 = addr_loc(prev_0101,out_of_bound);
+        T* prev_0110 = iter.prev_addr(out_of_bound,0,1,1,0);
+        simd_vector_0110 = addr_loc(prev_0110,out_of_bound); 
+        T* prev_0111 = iter.prev_addr(out_of_bound,0,1,1,1);
+        simd_vector_0111 = addr_loc(prev_0111,out_of_bound);
+        T* prev_1000 = iter.prev_addr(out_of_bound,1,0,0,0);
+        simd_vector_1000 = addr_loc(prev_1000,out_of_bound); 
+
+        //row 3 
+        T* prev_1001 = iter.prev_addr(out_of_bound,1,0,0,1);
+        simd_vector_1001 = addr_loc(prev_1001,out_of_bound);
+        T* prev_1010 = iter.prev_addr(out_of_bound,1,0,1,0);
+        simd_vector_1010 = addr_loc(prev_1010,out_of_bound); 
+        T* prev_1011 = iter.prev_addr(out_of_bound,1,0,1,1);
+        simd_vector_1011 = addr_loc(prev_1011,out_of_bound); 
+        T* prev_1100 = iter.prev_addr(out_of_bound,1,1,0,0);
+        simd_vector_1100 = addr_loc(prev_1100,out_of_bound);   
+
+        //row 4
+        T* prev_1101 = iter.prev_addr(out_of_bound,1,1,0,1);
+        simd_vector_1101 = addr_loc(prev_1101,out_of_bound); 
+        T* prev_1110 = iter.prev_addr(out_of_bound,1,1,1,0);
+        simd_vector_1110 = addr_loc(prev_1110,out_of_bound); 
+        T* prev_1111 = iter.prev_addr(out_of_bound,1,1,1,1);
+        simd_vector_1111 = addr_loc(prev_1111,out_of_bound);
+
+        return simd_vector_0001 + simd_vector_0010 - simd_vector_0011 + simd_vector_0100 -
+               simd_vector_0101 - simd_vector_0110 + simd_vector_0111 + simd_vector_1000 -
+               simd_vector_1001 - simd_vector_1010 + simd_vector_1011 - simd_vector_1100 +
+               simd_vector_1101 + simd_vector_1110 - simd_vector_1111;
     }
 
     //Iterative prediction
