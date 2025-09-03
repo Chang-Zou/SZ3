@@ -128,18 +128,23 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     // }
     void load(const uchar *&c, size_t &remaining_length) override {
         c += sizeof(uint8_t);
+        remaining_length -= sizeof(uint8_t);
 
         size_t unpred_size = *reinterpret_cast<const size_t *>(c);
         c += sizeof(size_t);
+        remaining_length -= sizeof(size_t);
         this->unpred_from_rounding_value = std::vector<T>(reinterpret_cast<const T *>(c), reinterpret_cast<const T *>(c) + unpred_size);
         c += unpred_size * sizeof(T);
+        remaining_length -= unpred_size * sizeof(T);
 
         size_t unpred_size2 = *reinterpret_cast<const size_t *>(c);
         c += sizeof(size_t);
+        remaining_length -= sizeof(size_t);
         this->unpred_from_rounding_index = std::vector<uint64_t>(reinterpret_cast<const uint64_t *>(c), reinterpret_cast<const uint64_t *>(c) + unpred_size2);
         c += unpred_size2 * sizeof(uint64_t);
+        remaining_length -= unpred_size2 * sizeof(uint64_t);
 
-        remaining_length -= sizeof(uint8_t);
+
     }
 
     void print() const override {
