@@ -53,6 +53,7 @@ class SZIterateCompressor : public concepts::CompressorInterface<T> {
     }
 
     size_t compress(const Config &conf, T *data, uchar *cmpData, size_t cmpCap) override {
+        Timer timer(true);
         std::vector<int> quant_inds(num_elements);
         auto block_range = std::make_shared<multi_dimensional_range<T, N>>(data, std::begin(global_dimensions),
                                                                            std::end(global_dimensions), block_size, 0);
@@ -83,6 +84,7 @@ class SZIterateCompressor : public concepts::CompressorInterface<T> {
         if (quantizer.get_out_range().first != 0) {
             throw std::runtime_error("The output range of the quantizer must start from 0 for this compressor");
         }
+        timer.stop("Predictor&Quantization");
         encoder.preprocess_encode(quant_inds, quantizer.get_out_range().second);
 
         size_t bufferSize = 1.2 * (quantizer.size_est() + encoder.size_est() + sizeof(T) * quant_inds.size());
@@ -128,7 +130,6 @@ class SZIterateCompressor : public concepts::CompressorInterface<T> {
         quantizer.load(buffer_pos, remaining_length);
 
         encoder.load(buffer_pos, remaining_length);
-
         //            timer.start();
         auto quant_inds = encoder.decode(buffer_pos, num);
         encoder.postprocess_decode();
@@ -136,7 +137,8 @@ class SZIterateCompressor : public concepts::CompressorInterface<T> {
 
         free(buffer);
         //            lossless.postdecompress_data(buffer);
-
+        Timer timer;
+        timer.start();
         //            timer.start();
         int const *quant_inds_pos = static_cast<int const *>(quant_inds.data());
         // std::array<size_t, N> intra_block_dims;
@@ -162,6 +164,7 @@ class SZIterateCompressor : public concepts::CompressorInterface<T> {
         }
         predictor.postdecompress_data(block_range->begin());
         quantizer.postdecompress_data();
+        timer.stop("Prediction & Recover");
         return decData;
         //            timer.stop("Prediction & Recover");
     }

@@ -77,7 +77,10 @@ void SZ_decompress_dispatcher(Config &conf, const uchar *cmpData, size_t cmpSize
         auto zstd = Lossless_zstd();
         size_t decDataSize = 0;
         auto decDataPos = reinterpret_cast<uchar *>(decData);
+        Timer timer;
+        timer.start();
         zstd.decompress(cmpData, cmpSize, decDataPos, decDataSize);
+        timer.stop("Prediction & Recover");
         if (decDataSize != conf.num * sizeof(T)) {
             throw std::runtime_error("Decompressed data size does not match the original data size\n");
         }
