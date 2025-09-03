@@ -229,7 +229,7 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
             }else if(col > batch_size && col % batch_size !=0){
                 while(element != element_range->end()){
                     size_t count = 0;
-                    for (; element != element_range->end(); element += batch_size) {
+                    for (; count + batch_size < col; element += batch_size) {
                         orig_element.copy_from(&(*element),stdx::element_aligned);
                         orig_element = quantizer.recover_prequant(orig_element);
                         orig_element.copy_to(&(*element += quant_count), stdx::element_aligned);
