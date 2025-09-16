@@ -84,39 +84,26 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
             }
             predictor_withfallback->precompress_block_commit();
 
-            size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
             auto element = element_range->begin();
-            auto col = element.get_dimensions().back();
+            auto end = element_range->end();
+            auto cols = element.get_dimensions().back();
+            const size_t full_batches = cols / batch_size;
+            const size_t remainder = cols % batch_size;
 
-            if((element_size % batch_size == 0) && (col % batch_size == 0)){ // fits in SIMD register completely
-                for(; element != element_range->end(); element += batch_size) {
+            while(element != end){
+                for(size_t b = 0; b < full_batches; ++b){
                     orig_element.copy_from(&(*element),stdx::element_aligned);
                     orig_element = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
                     orig_element.copy_to(&quant_inds[quant_count],stdx::element_aligned);
                     quant_count = quant_count + batch_size;
+                    element += batch_size;
                 }
-            }else if (col > batch_size && col % batch_size != 0) {
-                while(element != element_range->end()){
-                    size_t count = 0;
-                    for(; count + batch_size < col; element += batch_size){
-                        orig_element.copy_from(&(*element),stdx::element_aligned);
-                        orig_element = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
-                        orig_element.copy_to(&quant_inds[quant_count],stdx::element_aligned);                       
-                        quant_count = quant_count + batch_size;
-                        count += batch_size;
-                    }
-                    for(; count < col; ++element){
-                        quant_inds[quant_count++] =
-                            quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
-                        count++;
-                    }
-                }
-            }else{
-                for(; element != element_range->end(); ++element) {
+                for(size_t r = 0; r < remainder; ++r){
                     quant_inds[quant_count++] =
                         quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
+                    ++element;
                 }
-            }       
+            }      
         }
 
         predictor.postcompress_data(block_range->begin());
@@ -128,7 +115,7 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
         timer.stop("Predictor&Quantization");
         encoder.preprocess_encode(quant_inds, quantizer.get_out_range().second);
 
-        size_t bufferSize = 1.2 * (quantizer.size_est() + encoder.size_est() + sizeof(T) * quant_inds.size());
+        size_t bufferSize = 1.2 * (predictor.size_est() + quantizer.size_est() + encoder.size_est() + sizeof(T) * quant_inds.size());
         auto buffer = static_cast<uchar *>(malloc(bufferSize));
         uchar *buffer_pos = buffer;
 
@@ -216,40 +203,38 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
             element_range->update_block_range(block, block_size);
             auto element = element_range->begin();
-            size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
-            auto col = element.get_dimensions().back();
+            auto end = element_range->end();
+            auto cols = element.get_dimensions().back();
+            const size_t full_batches = cols/ batch_size;
+            const size_t remainder = cols % batch_size;
 
-            if((element_size % batch_size == 0) && (col % batch_size == 0)){
-                for (; element != element_range->end(); element += batch_size) {
+            while(element != end){
+                for(size_t b = 0; b < full_batches; ++b){
                     orig_element.copy_from(&(*element),stdx::element_aligned);
                     orig_element = quantizer.recover_prequant(orig_element);
                     orig_element.copy_to(&(*element += quant_count), stdx::element_aligned);
                     quant_count = quant_count + batch_size;
+                    element += batch_size;
                 }
-            }else if(col > batch_size && col % batch_size !=0){
-                while(element != element_range->end()){
-                    size_t count = 0;
-                    for (; count + batch_size < col; element += batch_size) {
-                        orig_element.copy_from(&(*element),stdx::element_aligned);
-                        orig_element = quantizer.recover_prequant(orig_element);
-                        orig_element.copy_to(&(*element += quant_count), stdx::element_aligned);
-                        quant_count = quant_count + batch_size;
-                        count +=batch_size;
-                    }
-                    for(; count < col; ++element){
-                        *element = quantizer.recover_prequant_sequental(*element);
-                        count++;
-                    }
+                for(size_t r = 0; r < remainder; ++r){
+                    *element = quantizer.recover_prequant_sequental(*element);
+                    ++element;
                 }
-            }else{
-                for (; element != element_range->end(); ++element) {*element = quantizer.recover_prequant_sequental(*element);}
             } 
         }
 
-        for(int i = 0; i < unpred_value.size(); i++){
-            uint64_t value = unpred_index[i];
-            decData[value] = unpred_value[i]; 
+        // for(int i = 0; i < unpred_value.size(); i++){
+        //     uint64_t value = unpred_index[i];
+        //     decData[value] = unpred_value[i]; 
+        // }
+
+        std::vector<size_t> idx(unpred_index.size());
+        std::iota(idx.begin(), idx.end(), 0);
+        std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) { return unpred_index[a] < unpred_index[b]; });
+        for (size_t i : idx){
+            decData[unpred_index[i]] = unpred_value[i];
         }
+
 
         predictor.postdecompress_data(block_range->begin());
         quantizer.postdecompress_data();

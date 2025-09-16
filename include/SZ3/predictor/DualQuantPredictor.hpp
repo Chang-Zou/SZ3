@@ -66,30 +66,23 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
 
     bool precompress_block(const std::shared_ptr<Range> &element_range) override {
         
-        size_t batch_size = stdx::native_simd<T>::size();
-        size_t element_size = element_range->end().get_offset() - element_range->begin().get_offset();
+        const size_t batch_size = stdx::native_simd<T>::size();
         auto element = element_range->begin();
-        auto col = element.get_dimensions().back();
+        auto end = element_range->end();
+        auto cols = element.get_dimensions().back();
 
-        if((element_size % batch_size == 0) && (col % batch_size == 0)){ // case 1 & 2
-            for(; element != element_range->end(); element += batch_size) {
+        const size_t full_batches = cols/ batch_size;
+        const size_t remainder = cols % batch_size;
+
+        while(element != end){
+            for(size_t b = 0; b < full_batches; ++b){
                 prequant(element);
+                element += batch_size;
             }
-        }else if (col > batch_size && col % batch_size != 0){ // case 3
-            while(element != element_range->end()){
-
-                size_t count = 0;
-                for(; count + batch_size < col; element+=batch_size){
-                    prequant(element);
-                    count +=batch_size;
-                }
-                for(; count < col; ++element){
-                    prequant_sequential(element);
-                    count++;
-                }
+            for(size_t r = 0; r < remainder; ++r){
+                prequant_sequential(element);
+                ++element;
             }
-        }else{
-            for(; element != element_range->end(); ++element) {prequant_sequential(element);}
         }
         return true;
     }
@@ -172,6 +165,8 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         return unpred_from_rounding_index;
     }
 
+    size_t size_est() { return unpred_from_rounding_index.size() * sizeof(uint64_t) + unpred_from_rounding_value.size() * sizeof(T); }
+
    protected:
     T noise = 0;
 
@@ -185,40 +180,50 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     
     #pragma GCC push_options
     #pragma GCC optimize ("O1")
-    inline void prequant(iterator &iter) {
-        stdx::native_simd<T> simd_vector;
-        simd_vector.copy_from(&(*iter), stdx::element_aligned);
-        stdx::native_simd<T> multipler = static_cast<T>(ebs_x2r);
-        std::fesetround(FE_TONEAREST);
-        stdx::native_simd<T> temp_vector = 0;
+    inline void prequant(auto &iter) {
         if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>){
+            stdx::native_simd<T> simd_vector;
+            simd_vector.copy_from(&(*iter), stdx::element_aligned);
+            stdx::native_simd<T> multipler = static_cast<T>(ebs_x2r);
+            std::fesetround(FE_TONEAREST);
+            stdx::native_simd<T> temp_vector = 0;
             temp_vector = stdx::nearbyint(simd_vector * multipler);
-        }else{
-            temp_vector = simd_vector * multipler;
-        }
-        stdx::native_simd<T> eb_x2 =  2 * static_cast<T>(eb);
-        stdx::native_simd<T> temp_vector_2 = temp_vector * eb_x2;
-        stdx::native_simd<T> difference = simd_vector - temp_vector_2;
-        
- 
-        for(std::size_t i = 0; i < simd_vector.size(); ++i){
-            if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>){
+
+            stdx::native_simd<T> eb_x2 =  2 * static_cast<T>(eb);
+            stdx::native_simd<T> temp_vector_2 = temp_vector * eb_x2;
+            stdx::native_simd<T> difference = simd_vector - temp_vector_2;
+
+            for(std::size_t i = 0; i < simd_vector.size(); ++i){
                 if(std::fabs(difference[i]) > eb){
                     unpred_from_rounding_index.push_back(iter.get_offset() + i);
                     unpred_from_rounding_value.push_back(simd_vector[i]);
-                }
-            }else{
+                }      
+            }
+            temp_vector.copy_to(&(*iter), stdx::element_aligned);
+        }else{
+            stdx::native_simd<T> simd_vector;
+            simd_vector.copy_from(&(*iter), stdx::element_aligned);
+            stdx::native_simd<T> multipler = static_cast<T>(ebs_x2r);
+            std::fesetround(FE_TONEAREST);
+            stdx::native_simd<T> temp_vector = 0;
+            temp_vector = simd_vector * multipler;
+
+            stdx::native_simd<T> eb_x2 =  2 * static_cast<T>(eb);
+            stdx::native_simd<T> temp_vector_2 = temp_vector * eb_x2;
+            stdx::native_simd<T> difference = simd_vector - temp_vector_2;
+
+            for(std::size_t i = 0; i < simd_vector.size(); ++i){
                 if(std::abs(difference[i]) > eb){
                     unpred_from_rounding_index.push_back(iter.get_offset() + i);
                     unpred_from_rounding_value.push_back(simd_vector[i]);
                 }
             }
+            temp_vector.copy_to(&(*iter), stdx::element_aligned);
         }
-        temp_vector.copy_to(&(*iter), stdx::element_aligned);
     }
     #pragma GCC pop_options
 
-    inline void prequant_sequential(iterator &iter) {
+    inline void prequant_sequential(auto &iter) {
         std::fesetround(FE_TONEAREST);
         auto temp_value = *iter * ebs_x2r;
         auto temp_value_2 = temp_value * 2 *eb;
@@ -231,36 +236,35 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     }
 
 
-    inline stdx::native_simd<T> addr_loc(T* address, std::array<int, N>& out_of_bound) const {
+    inline stdx::native_simd<T> addr_loc(T* address, bool &out_of_bound) const {
         stdx::native_simd<T> temp_vector;
         if(address == NULL){
             temp_vector = 0;
-            out_of_bound.fill(0);
-        }else if(std::any_of(out_of_bound.begin(), out_of_bound.end() - 1, [](auto v) { return v != 0; })) {
-            temp_vector = 0;
-            out_of_bound.fill(0);
-        }else if(out_of_bound.back() == 1){
+            return temp_vector;
+        }else if(out_of_bound == true){
             temp_vector.copy_from(address, stdx::element_aligned);
             temp_vector[0] = 0;
-            out_of_bound.fill(0);
+            out_of_bound = false;
+            return temp_vector;
         }else{
             temp_vector.copy_from(address, stdx::element_aligned);
+            return temp_vector;
         }
-        return temp_vector;
+
     }
 
     template <uint NN = N, uint LL = L>
     inline typename std::enable_if<NN == 1 && LL == 1, stdx::native_simd<T>>::type do_simdpredict(const iterator &iter) const noexcept {
         stdx::native_simd<T> simd_vector;
-        std::array<int, N> out_of_bound{};
-
+        bool out_of_bound = false;
         auto prev_1 = iter.prev_addr(out_of_bound,1);
         if(prev_1 == NULL){
             simd_vector = 0;
+            return simd_vector;
         }else{
             simd_vector.copy_from(prev_1, stdx::element_aligned);
+            return simd_vector;
         }
-        return simd_vector;
     }
     
     template <uint NN = N, uint LL = L>
@@ -268,7 +272,7 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         stdx::native_simd<T> simd_vector_01;
         stdx::native_simd<T> simd_vector_10;
         stdx::native_simd<T> simd_vector_11;
-        std::array<int, N> out_of_bound{};
+        bool out_of_bound = false;
         
         T* prev_01 = iter.prev_addr(out_of_bound,0,1);
         simd_vector_01 = addr_loc(prev_01,out_of_bound);
@@ -286,7 +290,7 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
     inline typename std::enable_if<NN == 3 && LL == 1, stdx::native_simd<T>>::type do_simdpredict(const iterator &iter) const noexcept {
         stdx::native_simd<T> simd_vector_001, simd_vector_010, simd_vector_100, simd_vector_111;
         stdx::native_simd<T> simd_vector_011, simd_vector_101, simd_vector_110;
-        std::array<int, N> out_of_bound{};
+        bool out_of_bound = false;
 
         T* prev_001 = iter.prev_addr(out_of_bound,0,0,1); 
         simd_vector_001 = addr_loc(prev_001,out_of_bound);
@@ -319,7 +323,7 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
         stdx::native_simd<T> simd_vector_0101, simd_vector_0110, simd_vector_0111, simd_vector_1000;
         stdx::native_simd<T> simd_vector_1001, simd_vector_1010, simd_vector_1011, simd_vector_1100;
         stdx::native_simd<T> simd_vector_1101, simd_vector_1110, simd_vector_1111;
-        std::array<int, N> out_of_bound{};
+        bool out_of_bound = false;
 
         // row 1
         T* prev_0001 = iter.prev_addr(out_of_bound,0,0,0,1);

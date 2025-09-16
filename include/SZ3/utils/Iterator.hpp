@@ -144,26 +144,28 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
 
             return range->data[offset];
         }
-
+        //std::array<int, N>& out_of_bound
         template <class... Args>
-        inline T* prev_addr(std::array<int, N>& out_of_bound, Args &&...pos) const {
+        inline T* prev_addr(bool &out_of_bound, Args &&...pos) const {
             
             static_assert(sizeof...(Args) == N, "Must have the same number of arguments");
             auto offset = global_offset;
+            if(offset <= -2){
+                return NULL;
+            }
 
             std::array<int, N> args{std::forward<Args>(pos)...};
 
             for (int i = 0; i < N; i++) {
                 if (local_index[i] < args[i] && range->is_left_boundary(i)){
-                    out_of_bound[i] = 1;
+                    if(i != N-1){
+                        return NULL;
+                    }else{
+                        out_of_bound =true;
+                    }
                 }
                 offset -= args[i] ? args[i] * range->global_dim_strides[i] : 0;
             }
-            
-            if(offset <= -2){
-                return NULL;
-            }
-
             return &range->data[offset];
         }
 

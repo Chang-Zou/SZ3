@@ -68,35 +68,33 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
             return 0;
         }
     }
-  
-    /*
-    fabs wrapper function
-    */
-    template <typename Q>
-    inline Q my_fabs(Q value){
-        using valueType = typename Q::value_type;
-
-        if constexpr (std::is_same_v<valueType, float> || std::is_same_v<valueType, double>){
-            return stdx::fabs(value);
-        }else{
-            return stdx::abs(value);
-        }
-    }
-    
 
     template <typename TP>
-    inline stdx::native_simd<TP> quantize_and_overwrite_simd(const stdx::native_simd<TP> data, const stdx::native_simd<TP> &pred) { 
-        stdx::native_simd<TP> diff = data - pred; 
-        using maskv = stdx::native_simd_mask<TP>;
-        maskv quantizable = (my_fabs(diff) < this->radius); 
-        auto quant_index = diff + this->radius;
-        where(!quantizable,quant_index) *= 0;
-        for(std::size_t i=0; i != data.size(); i++){
-            if(!quantizable[i]){
-                unpred.push_back(data[i]);
+    inline stdx::native_simd<TP> quantize_and_overwrite_simd(const stdx::native_simd<TP> data, const stdx::native_simd<TP> &pred) {
+        if constexpr (std::is_same_v<TP, float> || std::is_same_v<TP, double>){
+            stdx::native_simd<TP> diff = data - pred; 
+            stdx::native_simd_mask<TP> quantizable = (stdx::fabs(diff) < this->radius); 
+            auto quant_index = diff + this->radius;
+            where(!quantizable,quant_index) *= 0;
+            for(std::size_t i=0; i != data.size(); i++){
+                if(!quantizable[i]){
+                    unpred.push_back(data[i]);
+                }
             }
+            return quant_index;
+        }else{
+            stdx::native_simd<TP> diff = data - pred; 
+            stdx::native_simd_mask<TP> quantizable = (stdx::abs(diff) < this->radius); 
+            auto quant_index = diff + this->radius;
+            where(!quantizable,quant_index) *= 0;
+            for(std::size_t i=0; i != data.size(); i++){
+                if(!quantizable[i]){
+                    unpred.push_back(data[i]);
+                }
+            }
+            return  quant_index;
         }
-        return  quant_index;
+
     }
     
     // sequential for simd registers
