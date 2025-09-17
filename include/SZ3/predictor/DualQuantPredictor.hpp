@@ -186,16 +186,17 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
             simd_vector.copy_from(&(*iter), stdx::element_aligned);
             stdx::native_simd<T> multipler = static_cast<T>(ebs_x2r);
             std::fesetround(FE_TONEAREST);
-            stdx::native_simd<T> temp_vector = 0;
+            stdx::native_simd<T> temp_vector;
             temp_vector = stdx::nearbyint(simd_vector * multipler);
 
             stdx::native_simd<T> eb_x2 =  2 * static_cast<T>(eb);
             stdx::native_simd<T> temp_vector_2 = temp_vector * eb_x2;
             stdx::native_simd<T> difference = simd_vector - temp_vector_2;
+            auto offset = iter.get_offset();
 
             for(std::size_t i = 0; i < simd_vector.size(); ++i){
                 if(std::fabs(difference[i]) > eb){
-                    unpred_from_rounding_index.push_back(iter.get_offset() + i);
+                    unpred_from_rounding_index.push_back(offset + i);
                     unpred_from_rounding_value.push_back(simd_vector[i]);
                 }      
             }
@@ -205,16 +206,17 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
             simd_vector.copy_from(&(*iter), stdx::element_aligned);
             stdx::native_simd<T> multipler = static_cast<T>(ebs_x2r);
             std::fesetround(FE_TONEAREST);
-            stdx::native_simd<T> temp_vector = 0;
+            stdx::native_simd<T> temp_vector;
             temp_vector = simd_vector * multipler;
 
             stdx::native_simd<T> eb_x2 =  2 * static_cast<T>(eb);
             stdx::native_simd<T> temp_vector_2 = temp_vector * eb_x2;
             stdx::native_simd<T> difference = simd_vector - temp_vector_2;
+            auto offset = iter.get_offset();
 
             for(std::size_t i = 0; i < simd_vector.size(); ++i){
                 if(std::abs(difference[i]) > eb){
-                    unpred_from_rounding_index.push_back(iter.get_offset() + i);
+                    unpred_from_rounding_index.push_back(offset + i);
                     unpred_from_rounding_value.push_back(simd_vector[i]);
                 }
             }
@@ -392,28 +394,6 @@ class DualQuantPredictor : public concepts::PredictorInterface<T, N> {
                iter.prev(0, 1, 0, 1) - iter.prev(0, 1, 1, 0) + iter.prev(0, 1, 1, 1) + iter.prev(1, 0, 0, 0) -
                iter.prev(1, 0, 0, 1) - iter.prev(1, 0, 1, 0) + iter.prev(1, 0, 1, 1) - iter.prev(1, 1, 0, 0) +
                iter.prev(1, 1, 0, 1) + iter.prev(1, 1, 1, 0) - iter.prev(1, 1, 1, 1);
-    }
-
-    template <uint NN = N, uint LL = L>
-    inline typename std::enable_if<NN == 1 && LL == 2, T>::type do_predict(const iterator &iter) const noexcept {
-        return 2 * iter.prev(1) - iter.prev(2);
-    }
-
-    template <uint NN = N, uint LL = L>
-    inline typename std::enable_if<NN == 2 && LL == 2, T>::type do_predict(const iterator &iter) const noexcept {
-        return 2 * iter.prev(0, 1) - iter.prev(0, 2) + 2 * iter.prev(1, 0) - 4 * iter.prev(1, 1) + 2 * iter.prev(1, 2) -
-               iter.prev(2, 0) + 2 * iter.prev(2, 1) - iter.prev(2, 2);
-    }
-
-    template <uint NN = N, uint LL = L>
-    inline typename std::enable_if<NN == 3 && LL == 2, T>::type do_predict(const iterator &iter) const noexcept {
-        return 2 * iter.prev(0, 0, 1) - iter.prev(0, 0, 2) + 2 * iter.prev(0, 1, 0) - 4 * iter.prev(0, 1, 1) +
-               2 * iter.prev(0, 1, 2) - iter.prev(0, 2, 0) + 2 * iter.prev(0, 2, 1) - iter.prev(0, 2, 2) +
-               2 * iter.prev(1, 0, 0) - 4 * iter.prev(1, 0, 1) + 2 * iter.prev(1, 0, 2) - 4 * iter.prev(1, 1, 0) +
-               8 * iter.prev(1, 1, 1) - 4 * iter.prev(1, 1, 2) + 2 * iter.prev(1, 2, 0) - 4 * iter.prev(1, 2, 1) +
-               2 * iter.prev(1, 2, 2) - iter.prev(2, 0, 0) + 2 * iter.prev(2, 0, 1) - iter.prev(2, 0, 2) +
-               2 * iter.prev(2, 1, 0) - 4 * iter.prev(2, 1, 1) + 2 * iter.prev(2, 1, 2) - iter.prev(2, 2, 0) +
-               2 * iter.prev(2, 2, 1) - iter.prev(2, 2, 2);
     }
 };
 }  // namespace SZ3

@@ -223,11 +223,6 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
             } 
         }
 
-        // for(int i = 0; i < unpred_value.size(); i++){
-        //     uint64_t value = unpred_index[i];
-        //     decData[value] = unpred_value[i]; 
-        // }
-
         std::vector<size_t> idx(unpred_index.size());
         std::iota(idx.begin(), idx.end(), 0);
         std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) { return unpred_index[a] < unpred_index[b]; });

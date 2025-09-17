@@ -79,9 +79,7 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
         }
 
         inline multi_dimensional_iterator &operator+=(size_t batch_size) {
-            // Advance the iterator by batch_size steps
             for (size_t i = 0; i < batch_size; ++i) {
-                // Call operator++ to move the iterator one step forward
                 ++(*this);
             }
             return *this;
@@ -144,7 +142,7 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
 
             return range->data[offset];
         }
-        //std::array<int, N>& out_of_bound
+
         template <class... Args>
         inline T* prev_addr(bool &out_of_bound, Args &&...pos) const {
             
@@ -153,7 +151,7 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
             if(offset <= -2){
                 return NULL;
             }
-
+            
             std::array<int, N> args{std::forward<Args>(pos)...};
 
             for (int i = 0; i < N; i++) {
@@ -164,7 +162,7 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
                         out_of_bound =true;
                     }
                 }
-                offset -= args[i] ? args[i] * range->global_dim_strides[i] : 0;
+                offset -= args[i] * range->global_dim_strides[i];
             }
             return &range->data[offset];
         }
