@@ -6,9 +6,17 @@
 #include <iostream>
 #include <vector>
 
+#include <experimental/simd>
+
 #include "SZ3/def.hpp"
 #include "SZ3/quantizer/Quantizer.hpp"
 #include "SZ3/utils/MemoryUtil.hpp"
+
+
+namespace stdx {
+    using namespace std::experimental;
+    using namespace std::experimental::__proposed;
+}
 
 namespace SZ3 {
 
@@ -59,6 +67,46 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
             unpred.push_back(data);
             return 0;
         }
+    }
+
+    template <typename TP>
+    ALWAYS_INLINE stdx::native_simd<TP> quantize_and_overwrite_simd(const stdx::native_simd<TP> data, const stdx::native_simd<TP> &pred) {
+        if constexpr (std::is_same_v<TP, float> || std::is_same_v<TP, double>){
+            stdx::native_simd<TP> diff = data - pred; 
+            stdx::native_simd_mask<TP> quantizable = (stdx::fabs(diff) < this->radius); 
+            auto quant_index = diff + this->radius;
+            where(!quantizable,quant_index) *= 0;
+            for(std::size_t i=0; i != data.size(); i++){
+                if(!quantizable[i]){
+                    unpred.push_back(data[i]);
+                }
+            }
+            return quant_index;
+        }else{
+            stdx::native_simd<TP> diff = data - pred; 
+            stdx::native_simd_mask<TP> quantizable = (stdx::abs(diff) < this->radius); 
+            auto quant_index = diff + this->radius;
+            where(!quantizable,quant_index) *= 0;
+            for(std::size_t i=0; i != data.size(); i++){
+                if(!quantizable[i]){
+                    unpred.push_back(data[i]);
+                }
+            }
+            return  quant_index;
+        }
+
+    }
+    
+    // sequential for simd registers
+    ALWAYS_INLINE int quantize_and_overwrite_simd_sequential(T &data, T pred) {
+        T diff = data - pred;
+        bool quantizable = fabs(diff) < this->radius;
+        int quant_index = static_cast<int>(diff + this->radius);
+        if(!quantizable){
+            unpred.push_back(data);
+            quant_index = 0;
+        }
+        return quant_index;
     }
 
     // recover the data using the quantization index
