@@ -9,6 +9,7 @@
 #include "SZ3/encoder/Encoder.hpp"
 #include "SZ3/lossless/Lossless.hpp"
 #include "SZ3/predictor/LorenzoPredictor.hpp"
+#include "SZ3/predictor/DualQuantPredictor.hpp" 
 #include "SZ3/predictor/Predictor.hpp"
 #include "SZ3/quantizer/Quantizer.hpp"
 #include "SZ3/utils/Config.hpp"

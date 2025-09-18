@@ -9,7 +9,7 @@
 #include "SZ3/lossless/Lossless_zstd.hpp"
 #include "SZ3/predictor/DualQuantPredictor.hpp" 
 #include "SZ3/predictor/LorenzoPredictor.hpp"
-#include "SZ3/quantizer/LinearQuantizer.hpp"
+#include "SZ3/quantizer/LinearQuantizerDQ.hpp"
 #include "SZ3/utils/Config.hpp"
 #include "SZ3/utils/Extraction.hpp"
 #include "SZ3/utils/Iterator.hpp"
