@@ -6,6 +6,7 @@
 #include <iostream>
 #include <vector>
 
+#include <type_traits>
 #include <experimental/simd>
 
 #include "SZ3/def.hpp"
@@ -69,6 +70,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
         }
     }
 
+    // Dual Quant methods of quantization process (SIMD)
     template <typename TP>
     ALWAYS_INLINE stdx::native_simd<TP> quantize_and_overwrite_simd(const stdx::native_simd<TP> data, const stdx::native_simd<TP> &pred) {
         if constexpr (std::is_same_v<TP, float> || std::is_same_v<TP, double>){
@@ -97,7 +99,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
 
     }
     
-    // sequential for simd registers
+    // Dual Quant methods of quantization process (sequential) 
     ALWAYS_INLINE int quantize_and_overwrite_simd_sequential(T &data, T pred) {
         T diff = data - pred;
         bool quantizable = fabs(diff) < this->radius;
@@ -116,6 +118,27 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
         } else {
             return recover_unpred();
         }
+    }
+
+    // post quant recover back to prequant state
+    ALWAYS_INLINE T recover_simd(T pred, int quant_index) {
+        if(quant_index){
+            return (pred + (quant_index - this->radius));
+        }else{
+            return recover_unpred(); // return prequant data if false
+        }
+    }
+
+    // prequant recover back to orig data within errorbound (SIMD)
+    template <typename TP>
+    ALWAYS_INLINE stdx::native_simd<TP> recover_prequant(stdx::native_simd<TP> pred){
+        stdx::native_simd<TP> eb = static_cast<TP>(this->error_bound);
+        return (2* eb * pred);
+    }
+
+    // prequant recover back to orig data within errorbound (sequential)
+    ALWAYS_INLINE T recover_prequant_sequential(T pred){
+        return (2 * this->error_bound * pred);
     }
 
     ALWAYS_INLINE T recover_pred(T pred, int quant_index) {

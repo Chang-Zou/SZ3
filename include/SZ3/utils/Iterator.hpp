@@ -78,7 +78,7 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
             return *this;
         }
 
-        inline multi_dimensional_iterator &operator+=(size_t batch_size) {
+        ALWAYS_INLINE multi_dimensional_iterator &operator+=(size_t batch_size) {
             for (size_t i = 0; i < batch_size; ++i) {
                 ++(*this);
             }
@@ -141,8 +141,12 @@ class multi_dimensional_range : public std::enable_shared_from_this<multi_dimens
         }
 
 
+
+        // assuming the iterator is at [i0, j0, k0, ...]
+        // return address location of [i0 - pos[0], j0 - pos[1], k0 - pos[2] ...]
+        // return 0 if range is exceeded
         template <class... Args>
-        inline T* prev_addr(bool &out_of_bound, Args &&...pos) const {
+        ALWAYS_INLINE T* prev_address(bool &out_of_bound, Args &&...pos) const {
             
             static_assert(sizeof...(Args) == N, "Must have the same number of arguments");
             auto offset = global_offset;

@@ -27,7 +27,7 @@ namespace SZ3 {
 /**
  * SZSIMDCompressor glues together predictor, quantizer, encoder, and lossless modules to form the compressor.
  * It only takes Predictor, not Decomposition.
- * It will uses the SIMD registers through multidimensinal data to aplly the Predictor.
+ * It will use the SIMD register to iterate through the multidimensional data to apply the predictor.
  *
  * @tparam T original data type
  * @tparam N original data dimension
@@ -67,8 +67,6 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
 
         auto element_range = std::make_shared<multi_dimensional_range<T, N>>(data, std::begin(global_dimensions),
                                                                              std::end(global_dimensions), 1, 0);
-
-        predictor.precompress_data(block_range->begin());
         quantizer.precompress_data();
 
         size_t quant_count = 0;
@@ -77,42 +75,37 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
 
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
             element_range->update_block_range(block, block_size);
-
-            concepts::PredictorInterface<T, N> *predictor_withfallback = &predictor;
-            if (!predictor.precompress_block(element_range)) {
-                predictor_withfallback = &fallback_predictor;
-            }
-            predictor_withfallback->precompress_block_commit();
+            predictor.precompress_block(element_range);
 
             auto element = element_range->begin();
             auto end = element_range->end();
             auto cols = element.get_dimensions().back();
-            const size_t full_batches = cols / batch_size;
-            const size_t remainder = cols % batch_size;
+            const size_t num_batches = cols / batch_size;
+            const size_t num_sequential = cols % batch_size;
 
             while(element != end){
-                for(size_t b = 0; b < full_batches; ++b){
+                for(size_t b = 0; b < num_batches; ++b){
                     orig_element.copy_from(&(*element),stdx::element_aligned);
                     orig_element = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
                     orig_element.copy_to(&quant_inds[quant_count],stdx::element_aligned);
                     quant_count = quant_count + batch_size;
                     element += batch_size;
                 }
-                for(size_t r = 0; r < remainder; ++r){
+                for(size_t r = 0; r < num_sequential; ++r){
                     quant_inds[quant_count++] =
-                        quantizer.quantize_and_overwrite_simd_sequential(*element, predictor_withfallback->predict(element));
+                        quantizer.quantize_and_overwrite_simd_sequential(*element, predictor.predict(element));
                     ++element;
                 }
             }      
         }
 
-        predictor.postcompress_data(block_range->begin());
         quantizer.postcompress_data();
 
         if (quantizer.get_out_range().first != 0) {
             throw std::runtime_error("The output range of the quantizer must start from 0 for this compressor");
         }
         timer.stop("Predictor&Quantization");
+
         encoder.preprocess_encode(quant_inds, quantizer.get_out_range().second);
 
         size_t bufferSize = 1.2 * (predictor.size_est() + quantizer.size_est() + encoder.size_est() + sizeof(T) * quant_inds.size());
@@ -129,8 +122,6 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
         encoder.save(buffer_pos);
         encoder.encode(quant_inds, buffer_pos);
         encoder.postprocess_encode();
-
-        // assert(buffer_pos - buffer < bufferSize);
 
         auto cmpSize = lossless.compress(buffer, buffer_pos - buffer, cmpData, cmpCap);
         free(buffer);
@@ -167,7 +158,6 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
         free(buffer);
         //            lossless.postdecompress_data(buffer);
 
-        //            timer.start();
         Timer timer;
         timer.start();
         std::vector<T> unpred_value = predictor.get_unpred_value();
@@ -181,18 +171,12 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
         auto element_range = std::make_shared<multi_dimensional_range<T, N>>(decData, std::begin(global_dimensions),
                                                                              std::end(global_dimensions), 1, 0);
 
-        predictor.predecompress_data(block_range->begin());
         quantizer.predecompress_data();
 
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
             element_range->update_block_range(block, block_size);
-
-            concepts::PredictorInterface<T, N> *predictor_withfallback = &predictor;
-            if (!predictor.predecompress_block(element_range)) {
-                predictor_withfallback = &fallback_predictor;
-            }
             for (auto element = element_range->begin(); element != element_range->end(); ++element) {
-                *element = quantizer.recover_simd(predictor_withfallback->predict(element), *(quant_inds_pos++));
+                *element = quantizer.recover_simd(predictor.predict(element), *(quant_inds_pos++));
             }
         }
 
@@ -202,36 +186,33 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
 
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
             element_range->update_block_range(block, block_size);
+
             auto element = element_range->begin();
             auto end = element_range->end();
             auto cols = element.get_dimensions().back();
-            const size_t full_batches = cols/ batch_size;
-            const size_t remainder = cols % batch_size;
+            const size_t num_batches = cols/ batch_size;
+            const size_t num_sequential = cols % batch_size;
 
             while(element != end){
-                for(size_t b = 0; b < full_batches; ++b){
+                for(size_t b = 0; b < num_batches; ++b){
                     orig_element.copy_from(&(*element),stdx::element_aligned);
                     orig_element = quantizer.recover_prequant(orig_element);
                     orig_element.copy_to(&(*element += quant_count), stdx::element_aligned);
                     quant_count = quant_count + batch_size;
                     element += batch_size;
                 }
-                for(size_t r = 0; r < remainder; ++r){
-                    *element = quantizer.recover_prequant_sequental(*element);
+                for(size_t r = 0; r < num_sequential; ++r){
+                    *element = quantizer.recover_prequant_sequential(*element);
                     ++element;
                 }
             } 
         }
 
-        std::vector<size_t> idx(unpred_index.size());
-        std::iota(idx.begin(), idx.end(), 0);
-        std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) { return unpred_index[a] < unpred_index[b]; });
-        for (size_t i : idx){
-            decData[unpred_index[i]] = unpred_value[i];
+        for(int i =0; i< unpred_value.size();i++){
+            uint64_t value = unpred_index[i];
+            decData[value] = unpred_value[i];
         }
 
-
-        predictor.postdecompress_data(block_range->begin());
         quantizer.postdecompress_data();
         timer.stop("Prediction & Recover");
         return decData;
