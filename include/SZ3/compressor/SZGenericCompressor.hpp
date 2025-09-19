@@ -36,7 +36,9 @@ class SZGenericCompressor : public concepts::CompressorInterface<T> {
     }
 
     size_t compress(const Config &conf, T *data, uchar *cmpData, size_t cmpCap) override {
+        Timer timer(true);
         std::vector<int> quant_inds = decomposition.compress(conf, data);
+        timer.stop("Predictor&Quantization");
 
         if (decomposition.get_out_range().first != 0) {
             throw std::runtime_error("The output range of the decomposition must start from 0 for this compressor");
@@ -78,8 +80,9 @@ class SZGenericCompressor : public concepts::CompressorInterface<T> {
         encoder.postprocess_decode();
 
         free(buffer);
-
+        Timer timer(true);
         decomposition.decompress(conf, quant_inds, decData);
+        timer.stop("Prediction & Recover");
         return decData;
     }
 
