@@ -77,24 +77,34 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
             stdx::native_simd<TP> diff = data - pred; 
             stdx::native_simd_mask<TP> quantizable = (stdx::fabs(diff) < this->radius); 
             auto quant_index = diff + this->radius;
-            where(!quantizable,quant_index) *= 0;
-            for(std::size_t i=0; i != data.size(); i++){
+            where(!quantizable,quant_index) = 0;
+            const auto batch_size = data.size();
+            std::array<T, batch_size> local_val;
+            std::size_t count = 0;
+            for(std::size_t i=0; i < batch_size; ++i){
                 if(!quantizable[i]){
-                    unpred.push_back(data[i]);
+                    local_val[count] = data[i];
+                    ++count;
                 }
             }
+            unpred.insert(unpred.end(), local_val.begin(), local_val.begin() + count);
             return quant_index;
         }else{
             stdx::native_simd<TP> diff = data - pred; 
             stdx::native_simd_mask<TP> quantizable = (stdx::abs(diff) < this->radius); 
             auto quant_index = diff + this->radius;
-            where(!quantizable,quant_index) *= 0;
-            for(std::size_t i=0; i != data.size(); i++){
+            where(!quantizable,quant_index) = 0;
+            const auto batch_size = data.size();
+            std::array<T, batch_size> local_val;
+            std::size_t count = 0;
+            for(std::size_t i=0; i < batch_size; ++i){
                 if(!quantizable[i]){
-                    unpred.push_back(data[i]);
+                    local_val[count] = data[i];
+                    ++count;
                 }
             }
-            return  quant_index;
+            unpred.insert(unpred.end(), local_val.begin(), local_val.begin() + count);
+            return quant_index;
         }
 
     }

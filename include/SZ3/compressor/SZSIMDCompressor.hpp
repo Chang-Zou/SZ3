@@ -71,20 +71,21 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
 
         size_t quant_count = 0;
         size_t batch_size = stdx::native_simd<T>::size();
-        stdx::native_simd<T> orig_element;
+       // stdx::native_simd<T> orig_element;
 
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
+            stdx::native_simd<T> orig_element;
             element_range->update_block_range(block, block_size);
-            predictor.precompress_block(element_range);
 
             auto element = element_range->begin();
             auto end = element_range->end();
-            auto cols = element.get_dimensions().back();
+            size_t cols = element.get_dimensions().back();
             const size_t num_batches = cols / batch_size;
             const size_t num_sequential = cols % batch_size;
 
             while(element != end){
                 for(size_t b = 0; b < num_batches; ++b){
+                    predictor.prequant(element);
                     orig_element.copy_from(&(*element),stdx::element_aligned);
                     orig_element = quantizer.quantize_and_overwrite_simd(orig_element, predictor.simd_predict(element));
                     orig_element.copy_to(&quant_inds[quant_count],stdx::element_aligned);
@@ -92,6 +93,7 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
                     element += batch_size;
                 }
                 for(size_t r = 0; r < num_sequential; ++r){
+                    predictor.prequant_sequential(element);
                     quant_inds[quant_count++] =
                         quantizer.quantize_and_overwrite_simd_sequential(*element, predictor.predict(element));
                     ++element;
