@@ -71,10 +71,9 @@ class SZSIMDCompressor : public concepts::CompressorInterface<T> {
 
         size_t quant_count = 0;
         size_t batch_size = stdx::native_simd<T>::size();
-       // stdx::native_simd<T> orig_element;
+        stdx::native_simd<T> orig_element;
 
         for (auto block = block_range->begin(); block != block_range->end(); ++block) {
-            stdx::native_simd<T> orig_element;
             element_range->update_block_range(block, block_size);
 
             auto element = element_range->begin();

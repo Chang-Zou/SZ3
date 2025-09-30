@@ -79,15 +79,16 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
             auto quant_index = diff + this->radius;
             where(!quantizable,quant_index) = 0;
             const auto batch_size = data.size();
-            std::array<T, batch_size> local_val;
-            std::size_t count = 0;
+            // std::array<T, batch_size> local_val;
+            // std::size_t count = 0;
             for(std::size_t i=0; i < batch_size; ++i){
                 if(!quantizable[i]){
-                    local_val[count] = data[i];
-                    ++count;
+                    //local_val[count] = data[i];
+                    //++count;
+                    unpred.push_back(data[i]);
                 }
             }
-            unpred.insert(unpred.end(), local_val.begin(), local_val.begin() + count);
+            //unpred.insert(unpred.end(), local_val.begin(), local_val.begin() + count);
             return quant_index;
         }else{
             stdx::native_simd<TP> diff = data - pred; 
